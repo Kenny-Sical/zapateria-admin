@@ -20,7 +20,7 @@ class LoginController extends Controller
     }
 
     /**
-     * Procesa la solicitud de inicio de sesión.
+     * Procesa la solicitud de inicio de sesión compatible con WordPress.
      *
      * @param  \Illuminate\Http\Request  $request
      * @return \Illuminate\Http\RedirectResponse
@@ -28,20 +28,23 @@ class LoginController extends Controller
     public function login(Request $request)
     {
         $request->validate([
-            'email' => 'required|email',
-            'password' => 'required',
+            'email' => 'required|string',
+            'password' => 'required|string',
         ]);
 
-        // Buscar el usuario por email
-        $user = User::where('email', $request->email)->first();
+        $input = $request->input('email');
 
-        // Verificar que el usuario exista y que la contraseña (en SHA256) coincida
-        if ($user && hash('sha256', $request->password) === $user->password) {
-            // Autenticar manualmente al usuario
+        // Buscar por email o username (user_login)
+        $user = User::where('user_email', $input)
+            ->orWhere('user_login', $input)
+            ->first();
+
+        // Verificar contraseña con el verificador de WordPress
+        if ($user && User::verifyPassword($request->password, $user->user_pass)) {
             Auth::login($user, $request->boolean('remember'));
             $request->session()->regenerate();
             
-            // Redirigir según el rol
+            // Redirigir según rol
             if ($user->role === 0) {
                 return redirect()->route('dashboard');
             } else {
@@ -49,9 +52,8 @@ class LoginController extends Controller
             }
         }
 
-        // Si falla, retornar con un error
         return back()->withErrors([
-            'email' => 'Las credenciales proporcionadas no son correctas.',
+            'email' => 'Las credenciales proporcionadas no coinciden con nuestros registros.',
         ])->onlyInput('email');
     }
 

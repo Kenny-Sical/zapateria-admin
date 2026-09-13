@@ -32,7 +32,7 @@ class LoginController extends Controller
             'password' => 'required|string',
         ]);
 
-        $input = $request->input('email');
+        $input = trim((string) $request->input('email'));
 
         // Buscar por email o username (user_login)
         $user = User::where('user_email', $input)

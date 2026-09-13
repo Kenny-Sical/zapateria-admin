@@ -117,11 +117,12 @@ class User extends Authenticatable
     }
 
     /**
-     * Hashea una contraseña compatible con WordPress.
+     * Hashea una contraseña compatible con WordPress (WordPress 6.8+ HMAC-SHA384 + Bcrypt).
      */
     public static function hashPassword(string $password): string
     {
-        $bcryptHash = password_hash($password, PASSWORD_BCRYPT, ['cost' => 10]);
+        $passwordToHash = base64_encode(hash_hmac('sha384', trim($password), 'wp-sha384', true));
+        $bcryptHash = password_hash($passwordToHash, PASSWORD_BCRYPT, ['cost' => 10]);
         return '$wp' . $bcryptHash;
     }
 
@@ -130,9 +131,22 @@ class User extends Authenticatable
      */
     public static function verifyPassword(string $password, string $hash): bool
     {
-        if (str_starts_with($hash, '$wp$2y$') || str_starts_with($hash, '$wp$2a$') || str_starts_with($hash, '$wp$2b$')) {
+        if (strlen($password) > 4096) {
+            return false;
+        }
+
+        // Formato WordPress 6.8+ con prefijo $wp (pre-hasheado con HMAC-SHA384)
+        if (str_starts_with($hash, '$wp')) {
             $realHash = substr($hash, 3);
-            return password_verify($password, $realHash);
+            $wpSha = base64_encode(hash_hmac('sha384', $password, 'wp-sha384', true));
+            if (password_verify($wpSha, $realHash)) {
+                return true;
+            }
+            // Fallback por si el hash fue creado con bcrypt directo y prefijo $wp
+            if (password_verify($password, $realHash)) {
+                return true;
+            }
+            return false;
         }
 
         if (str_starts_with($hash, '$2y$') || str_starts_with($hash, '$2a$') || str_starts_with($hash, '$2b$')) {

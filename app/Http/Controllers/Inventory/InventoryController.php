@@ -4,124 +4,202 @@ namespace App\Http\Controllers\Inventory;
 
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
+use App\Services\WooCommerceApiService;
 
 class InventoryController extends Controller
 {
     /**
-     * Muestra la vista principal del inventario.
+     * Muestra la vista principal del inventario desde WooCommerce REST API.
      */
-    public function index(Request $request)
+    public function index(Request $request, WooCommerceApiService $wcApi)
     {
-        $categories = \Illuminate\Support\Facades\DB::table('categories')->get();
-        $colors = \Illuminate\Support\Facades\DB::table('colors')->get();
-        $sizes = \Illuminate\Support\Facades\DB::table('sizes')->get();
+        try {
+            $meta = $wcApi->ensureAttributesAndTermsExist();
+            $colors = $meta['colors'];
+            $sizes = $meta['sizes'];
 
-        $query = \Illuminate\Support\Facades\DB::table('products')
-            ->join('categories', 'products.category_id', '=', 'categories.id')
-            ->select('products.*', 'categories.name as category_name');
+            $rawCategories = $wcApi->getCategories(['per_page' => 100]);
+            $categories = array_map(function ($c) {
+                return (object)[
+                    'id' => (int)$c['id'],
+                    'name' => $c['name'],
+                ];
+            }, $rawCategories);
 
-        $inventoryQuery = \Illuminate\Support\Facades\DB::table('inventories')
-            ->join('colors', 'inventories.color_id', '=', 'colors.id')
-            ->join('sizes', 'inventories.size_id', '=', 'sizes.id')
-            ->select('inventories.*', 'colors.name as color_name', 'sizes.size as size_name');
+            $params = ['per_page' => 50];
+            if ($request->filled('search')) {
+                $params['search'] = $request->search;
+            }
 
-        if ($request->filled('search')) {
-            $query->where('products.sku', 'like', '%' . $request->search . '%');
-        }
-        
-        if ($request->filled('categories')) {
-            $query->whereIn('products.category_id', $request->categories);
-        }
+            $rawProducts = $wcApi->getProducts($params);
 
-        if ($request->filled('colors')) {
-            $inventoryQuery->whereIn('inventories.color_id', $request->colors);
-            $query->whereIn('products.id', function($q) use ($request) {
-                $q->select('product_id')->from('inventories')->whereIn('color_id', $request->colors);
-            });
-        }
-        
-        if ($request->filled('sizes')) {
-            $inventoryQuery->whereIn('inventories.size_id', $request->sizes);
-            $query->whereIn('products.id', function($q) use ($request) {
-                $q->select('product_id')->from('inventories')->whereIn('size_id', $request->sizes);
-            });
-        }
+            $products = [];
+            foreach ($rawProducts as $p) {
+                $productId = (int)$p['id'];
+                $sku = !empty($p['sku']) ? $p['sku'] : $p['name'];
+                $categoryName = !empty($p['categories']) ? $p['categories'][0]['name'] : 'Sin categoría';
+                $categoryId = !empty($p['categories']) ? (int)$p['categories'][0]['id'] : null;
+                $image = !empty($p['images']) ? $p['images'][0]['src'] : null;
+                $isActive = ($p['status'] === 'publish');
 
-        $products = $query->orderBy('products.id', 'desc')->get();
-        $inventories = $inventoryQuery->get();
+                $variations = $wcApi->getProductVariations($productId);
 
-        $groupedInventories = [];
-        foreach ($inventories as $inv) {
-            $groupedInventories[$inv->product_id][] = $inv;
-        }
-
-        $filteredProducts = [];
-        foreach ($products as $product) {
-            $product->inventory = $groupedInventories[$product->id] ?? [];
-            $product->total_stock = array_sum(array_column($product->inventory, 'amount'));
-            
-            if (!empty($product->inventory) || (!$request->filled('colors') && !$request->filled('sizes'))) {
-                // Preparar matriz cruzada (Color x Talla)
+                $inventory = [];
                 $matrixSizes = [];
                 $matrixData = [];
-                
-                foreach ($product->inventory as $inv) {
-                    $matrixSizes[$inv->size_id] = $inv->size_name;
-                    $matrixData[$inv->color_name][$inv->size_id] = $inv->amount;
+                $totalStock = 0;
+
+                foreach ($variations as $var) {
+                    $varColor = '';
+                    $varSize = '';
+                    foreach ($var['attributes'] as $attr) {
+                        if (in_array(strtolower($attr['name']), ['color', 'pa_color'])) {
+                            $varColor = $attr['option'];
+                        }
+                        if (in_array(strtolower($attr['name']), ['talla', 'pa_talla'])) {
+                            $varSize = $attr['option'];
+                        }
+                    }
+
+                    $amount = (int)($var['stock_quantity'] ?? 0);
+                    $totalStock += $amount;
+
+                    $colorId = null;
+                    foreach ($colors as $c) {
+                        if (strtolower($c->name) === strtolower($varColor)) {
+                            $colorId = $c->id;
+                            break;
+                        }
+                    }
+                    $sizeId = null;
+                    foreach ($sizes as $s) {
+                        if (strtolower($s->name) === strtolower($varSize)) {
+                            $sizeId = $s->id;
+                            break;
+                        }
+                    }
+
+                    if (!$colorId) $colorId = $varColor;
+                    if (!$sizeId) $sizeId = $varSize;
+
+                    $inventory[] = (object)[
+                        'id' => (int)$var['id'],
+                        'product_id' => $productId,
+                        'color_id' => $colorId,
+                        'color_name' => $varColor,
+                        'size_id' => $sizeId,
+                        'size_name' => $varSize,
+                        'amount' => $amount,
+                    ];
+
+                    $matrixSizes[$sizeId] = $varSize;
+                    $matrixData[$varColor][$sizeId] = $amount;
                 }
-                
-                asort($matrixSizes); // Ordenar tallas
-                
-                $product->matrix_sizes = $matrixSizes;
-                $product->matrix_data = $matrixData;
 
-                $filteredProducts[] = $product;
+                ksort($matrixSizes);
+
+                // Aplicar filtros locales de categoría, color o talla
+                if ($request->filled('categories') && !in_array($categoryId, (array)$request->categories)) {
+                    continue;
+                }
+
+                if ($request->filled('colors')) {
+                    $hasColor = false;
+                    foreach ($inventory as $inv) {
+                        if (in_array($inv->color_id, (array)$request->colors)) {
+                            $hasColor = true;
+                            break;
+                        }
+                    }
+                    if (!$hasColor) continue;
+                }
+
+                if ($request->filled('sizes')) {
+                    $hasSize = false;
+                    foreach ($inventory as $inv) {
+                        if (in_array($inv->size_id, (array)$request->sizes)) {
+                            $hasSize = true;
+                            break;
+                        }
+                    }
+                    if (!$hasSize) continue;
+                }
+
+                $productObj = new \stdClass();
+                $productObj->id = $productId;
+                $productObj->sku = $sku;
+                $productObj->category_name = $categoryName;
+                $productObj->category_id = $categoryId;
+                $productObj->image = $image;
+                $productObj->is_active = $isActive;
+                $productObj->inventory = $inventory;
+                $productObj->total_stock = $totalStock;
+                $productObj->matrix_sizes = $matrixSizes;
+                $productObj->matrix_data = $matrixData;
+
+                $products[] = $productObj;
             }
-        }
-        $products = $filteredProducts;
 
-        return view('inventory.read', compact('categories', 'colors', 'sizes', 'products'));
+            return view('inventory.read', compact('categories', 'colors', 'sizes', 'products'));
+        } catch (\Exception $e) {
+            return view('inventory.read', [
+                'categories' => [],
+                'colors' => [],
+                'sizes' => [],
+                'products' => [],
+            ])->with('error', 'Error al consultar WooCommerce API: ' . $e->getMessage());
+        }
     }
 
     /**
      * Muestra el formulario de creación (Wizard).
      */
-    public function create()
+    public function create(WooCommerceApiService $wcApi)
     {
-        $categories = \Illuminate\Support\Facades\DB::table('categories')->get();
-        $colors = \Illuminate\Support\Facades\DB::table('colors')->get();
-        $sizes = \Illuminate\Support\Facades\DB::table('sizes')->get();
+        try {
+            $meta = $wcApi->ensureAttributesAndTermsExist();
+            $colors = $meta['colors'];
+            $sizes = $meta['sizes'];
 
-        return view('inventory.create', compact('categories', 'colors', 'sizes'));
+            $rawCategories = $wcApi->getCategories(['per_page' => 100]);
+            $categories = array_map(function ($c) {
+                return (object)[
+                    'id' => (int)$c['id'],
+                    'name' => $c['name'],
+                ];
+            }, $rawCategories);
+
+            return view('inventory.create', compact('categories', 'colors', 'sizes'));
+        } catch (\Exception $e) {
+            return redirect()->route('inventory.index')->with('error', 'Error al cargar formulario: ' . $e->getMessage());
+        }
     }
 
     /**
-     * Guarda el nuevo producto y su inventario asociado.
+     * Guarda el nuevo producto y su inventario en WooCommerce vía REST API.
      */
-    public function store(Request $request)
+    public function store(Request $request, WooCommerceApiService $wcApi)
     {
         $request->validate([
-            'sku' => 'required|string|unique:products,sku',
-            'category_id' => 'required|exists:categories,id',
+            'sku' => 'required|string',
+            'category_id' => 'required',
             'image' => 'nullable|image',
-            'inventory' => 'required|array'
+            'inventory' => 'required|array',
         ]);
 
-        $imageName = null;
+        $imageUrl = null;
         if ($request->hasFile('image')) {
-            // Procesamiento de Imagen a WebP
             $image = $request->file('image');
-            // Limpiamos el SKU y le concatenamos el tiempo para evitar duplicados
             $imageNameStr = 'sku_' . preg_replace('/[^A-Za-z0-9\-]/', '', $request->sku) . '_' . time() . '.webp';
             $destinationPath = public_path('storage/products');
-            
+
             if (!file_exists($destinationPath)) {
                 mkdir($destinationPath, 0755, true);
             }
 
             $sourceImage = null;
             $mime = $image->getMimeType();
-            switch($mime) {
+            switch ($mime) {
                 case 'image/jpeg':
                     $sourceImage = imagecreatefromjpeg($image->getPathname());
                     break;
@@ -138,197 +216,198 @@ class InventoryController extends Controller
                     $sourceImage = imagecreatefromgif($image->getPathname());
                     break;
             }
-            
+
             if ($sourceImage) {
                 imagewebp($sourceImage, $destinationPath . '/' . $imageNameStr, 85);
                 imagedestroy($sourceImage);
-            }
-            
-            $imageName = 'storage/products/' . $imageNameStr;
-        }
-
-        // 1. Guardar Producto
-        $productId = \Illuminate\Support\Facades\DB::table('products')->insertGetId([
-            'sku' => $request->sku,
-            'category_id' => $request->category_id,
-            'image' => $imageName,
-            'created_at' => now(),
-            'updated_at' => now(),
-        ]);
-
-        // 2. Guardar Inventario (Matriz Excel)
-        $inventoryData = [];
-        foreach ($request->inventory as $colorId => $sizes) {
-            foreach ($sizes as $sizeId => $amount) {
-                if ($amount > 0) { // Solo guardar si hay más de 0
-                    $inventoryData[] = [
-                        'product_id' => $productId,
-                        'color_id' => $colorId,
-                        'size_id' => $sizeId,
-                        'amount' => $amount,
-                        'created_at' => now(),
-                        'updated_at' => now(),
-                    ];
-                }
+                $imageUrl = asset('storage/products/' . $imageNameStr);
             }
         }
 
-        if (!empty($inventoryData)) {
-            \Illuminate\Support\Facades\DB::table('inventories')->insert($inventoryData);
-        }
+        try {
+            $wcApi->saveFullVariableProduct([
+                'sku' => $request->sku,
+                'category_id' => $request->category_id,
+                'image_url' => $imageUrl,
+                'inventory' => $request->inventory,
+                'is_active' => true,
+            ]);
 
-        return redirect()->route('inventory.index')->with('success', 'El producto y su inventario se guardaron correctamente.');
+            return redirect()->route('inventory.index')->with('success', 'El producto y su inventario se guardaron correctamente en WooCommerce vía REST API.');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Error al guardar el producto en WooCommerce: ' . $e->getMessage())->withInput();
+        }
     }
 
-    public function edit($id)
+    /**
+     * Muestra la vista de edición.
+     */
+    public function edit($id, WooCommerceApiService $wcApi)
     {
-        $product = \Illuminate\Support\Facades\DB::table('products')->where('id', $id)->first();
-        if (!$product) abort(404);
+        try {
+            $meta = $wcApi->ensureAttributesAndTermsExist();
+            $colors = $meta['colors'];
+            $sizes = $meta['sizes'];
 
-        $categories = \Illuminate\Support\Facades\DB::table('categories')->get();
-        $colors = \Illuminate\Support\Facades\DB::table('colors')->get();
-        $sizes = \Illuminate\Support\Facades\DB::table('sizes')->get();
-
-        $inventoryRecords = \Illuminate\Support\Facades\DB::table('inventories')->where('product_id', $id)->get();
-        
-        $existingInventory = [];
-        $selectedColors = [];
-        $selectedSizes = [];
-        
-        foreach ($inventoryRecords as $record) {
-            $existingInventory[$record->color_id][$record->size_id] = $record->amount;
-            if (!in_array($record->color_id, $selectedColors)) $selectedColors[] = $record->color_id;
-            if (!in_array($record->size_id, $selectedSizes)) $selectedSizes[] = $record->size_id;
-        }
-
-        return view('inventory.edit', compact('product', 'categories', 'colors', 'sizes', 'existingInventory', 'selectedColors', 'selectedSizes'));
-    }
-
-    public function update(Request $request, $id)
-    {
-        $product = \Illuminate\Support\Facades\DB::table('products')->where('id', $id)->first();
-        if (!$product) abort(404);
-
-        $request->validate([
-            'sku' => 'required|string|unique:products,sku,' . $id,
-            'category_id' => 'required|exists:categories,id',
-            'image' => 'nullable|image',
-            'inventory' => 'required|array'
-        ]);
-
-        $imageName = $product->image;
-        if ($request->hasFile('image')) {
-            $image = $request->file('image');
-            $imageNameStr = 'sku_' . preg_replace('/[^A-Za-z0-9\-]/', '', $request->sku) . '_' . time() . '.webp';
-            $destinationPath = public_path('storage/products');
-            
-            if (!file_exists($destinationPath)) {
-                mkdir($destinationPath, 0755, true);
-            }
-
-            $sourceImage = null;
-            $mime = $image->getMimeType();
-            switch($mime) {
-                case 'image/jpeg':
-                    $sourceImage = imagecreatefromjpeg($image->getPathname());
-                    break;
-                case 'image/png':
-                    $sourceImage = imagecreatefrompng($image->getPathname());
-                    imagepalettetotruecolor($sourceImage);
-                    imagealphablending($sourceImage, true);
-                    imagesavealpha($sourceImage, true);
-                    break;
-                case 'image/webp':
-                    $sourceImage = imagecreatefromwebp($image->getPathname());
-                    break;
-                case 'image/gif':
-                    $sourceImage = imagecreatefromgif($image->getPathname());
-                    break;
-            }
-            
-            if ($sourceImage) {
-                imagewebp($sourceImage, $destinationPath . '/' . $imageNameStr, 85);
-                imagedestroy($sourceImage);
-                $imageName = 'storage/products/' . $imageNameStr;
-            }
-        }
-
-        \Illuminate\Support\Facades\DB::table('products')->where('id', $id)->update([
-            'sku' => $request->sku,
-            'category_id' => $request->category_id,
-            'image' => $imageName,
-            'updated_at' => now(),
-        ]);
-
-        $processedCombinations = [];
-        foreach ($request->inventory as $color_id => $sizes_data) {
-            foreach ($sizes_data as $size_id => $amount) {
-                // Insertar o actualizar manteniendo el ID intacto
-                \Illuminate\Support\Facades\DB::table('inventories')->updateOrInsert(
-                    ['product_id' => $id, 'color_id' => $color_id, 'size_id' => $size_id],
-                    ['amount' => $amount, 'updated_at' => now()]
-                );
-                
-                $processedCombinations[] = [
-                    'color_id' => $color_id, 
-                    'size_id' => $size_id
+            $rawCategories = $wcApi->getCategories(['per_page' => 100]);
+            $categories = array_map(function ($c) {
+                return (object)[
+                    'id' => (int)$c['id'],
+                    'name' => $c['name'],
                 ];
-            }
-        }
+            }, $rawCategories);
 
-        // Poner en 0 aquellas combinaciones viejas que fueron omitidas ahora
-        $allInventories = \Illuminate\Support\Facades\DB::table('inventories')->where('product_id', $id)->get();
-        foreach ($allInventories as $inv) {
-            $found = false;
-            foreach ($processedCombinations as $pc) {
-                if ($pc['color_id'] == $inv->color_id && $pc['size_id'] == $inv->size_id) {
-                    $found = true;
-                    break;
+            $p = $wcApi->getProduct((int)$id);
+            $variations = $wcApi->getProductVariations((int)$id);
+
+            $existingInventory = [];
+            $selectedColors = [];
+            $selectedSizes = [];
+
+            foreach ($variations as $var) {
+                $varColor = '';
+                $varSize = '';
+                foreach ($var['attributes'] as $attr) {
+                    if (in_array(strtolower($attr['name']), ['color', 'pa_color'])) {
+                        $varColor = $attr['option'];
+                    }
+                    if (in_array(strtolower($attr['name']), ['talla', 'pa_talla'])) {
+                        $varSize = $attr['option'];
+                    }
+                }
+
+                $amount = (int)($var['stock_quantity'] ?? 0);
+
+                $colorId = null;
+                foreach ($colors as $c) {
+                    if (strtolower($c->name) === strtolower($varColor)) {
+                        $colorId = $c->id;
+                        break;
+                    }
+                }
+                $sizeId = null;
+                foreach ($sizes as $s) {
+                    if (strtolower($s->name) === strtolower($varSize)) {
+                        $sizeId = $s->id;
+                        break;
+                    }
+                }
+
+                if ($colorId && $sizeId) {
+                    $existingInventory[$colorId][$sizeId] = $amount;
+                    if (!in_array($colorId, $selectedColors)) $selectedColors[] = $colorId;
+                    if (!in_array($sizeId, $selectedSizes)) $selectedSizes[] = $sizeId;
                 }
             }
-            if (!$found && $inv->amount > 0) {
-                \Illuminate\Support\Facades\DB::table('inventories')
-                    ->where('id', $inv->id)
-                    ->update(['amount' => 0, 'updated_at' => now()]);
+
+            $product = (object)[
+                'id' => (int)$p['id'],
+                'sku' => !empty($p['sku']) ? $p['sku'] : $p['name'],
+                'category_id' => !empty($p['categories']) ? (int)$p['categories'][0]['id'] : null,
+                'image' => !empty($p['images']) ? $p['images'][0]['src'] : null,
+                'is_active' => ($p['status'] === 'publish'),
+            ];
+
+            return view('inventory.edit', compact(
+                'product',
+                'categories',
+                'colors',
+                'sizes',
+                'existingInventory',
+                'selectedColors',
+                'selectedSizes'
+            ));
+        } catch (\Exception $e) {
+            return redirect()->route('inventory.index')->with('error', 'Error al cargar el producto para edición: ' . $e->getMessage());
+        }
+    }
+
+    /**
+     * Actualiza el producto y sus variaciones en WooCommerce.
+     */
+    public function update(Request $request, $id, WooCommerceApiService $wcApi)
+    {
+        $request->validate([
+            'sku' => 'required|string',
+            'category_id' => 'required',
+            'image' => 'nullable|image',
+            'inventory' => 'required|array',
+        ]);
+
+        $imageUrl = null;
+        if ($request->hasFile('image')) {
+            $image = $request->file('image');
+            $imageNameStr = 'sku_' . preg_replace('/[^A-Za-z0-9\-]/', '', $request->sku) . '_' . time() . '.webp';
+            $destinationPath = public_path('storage/products');
+
+            if (!file_exists($destinationPath)) {
+                mkdir($destinationPath, 0755, true);
+            }
+
+            $sourceImage = null;
+            $mime = $image->getMimeType();
+            switch ($mime) {
+                case 'image/jpeg':
+                    $sourceImage = imagecreatefromjpeg($image->getPathname());
+                    break;
+                case 'image/png':
+                    $sourceImage = imagecreatefrompng($image->getPathname());
+                    imagepalettetotruecolor($sourceImage);
+                    imagealphablending($sourceImage, true);
+                    imagesavealpha($sourceImage, true);
+                    break;
+                case 'image/webp':
+                    $sourceImage = imagecreatefromwebp($image->getPathname());
+                    break;
+                case 'image/gif':
+                    $sourceImage = imagecreatefromgif($image->getPathname());
+                    break;
+            }
+
+            if ($sourceImage) {
+                imagewebp($sourceImage, $destinationPath . '/' . $imageNameStr, 85);
+                imagedestroy($sourceImage);
+                $imageUrl = asset('storage/products/' . $imageNameStr);
             }
         }
 
-        return redirect()->route('inventory.index')->with('success', 'Producto e inventario actualizados con éxito.');
+        try {
+            $wcApi->saveFullVariableProduct([
+                'sku' => $request->sku,
+                'category_id' => $request->category_id,
+                'image_url' => $imageUrl,
+                'inventory' => $request->inventory,
+            ], (int)$id);
+
+            return redirect()->route('inventory.index')->with('success', 'Producto e inventario actualizados con éxito en WooCommerce.');
+        } catch (\Exception $e) {
+            return back()->with('error', 'Error al actualizar producto en WooCommerce: ' . $e->getMessage())->withInput();
+        }
     }
 
-    public function toggleStatus($id)
+    /**
+     * Alterna el estado activo/inactivo del producto en WooCommerce.
+     */
+    public function toggleStatus($id, WooCommerceApiService $wcApi)
     {
-        $product = \Illuminate\Support\Facades\DB::table('products')->where('id', $id)->first();
-        if (!$product) abort(404);
-
-        $newStatus = !$product->is_active;
-
-        \Illuminate\Support\Facades\DB::table('products')->where('id', $id)->update([
-            'is_active' => $newStatus,
-            'updated_at' => now(),
-        ]);
-
-        $message = $newStatus ? 'Producto habilitado con éxito.' : 'Producto deshabilitado con éxito.';
-        return redirect()->route('inventory.index')->with('success', $message);
+        try {
+            $wcApi->toggleProductStatus((int)$id);
+            return redirect()->route('inventory.index')->with('success', 'Estado del producto actualizado en WooCommerce.');
+        } catch (\Exception $e) {
+            return redirect()->route('inventory.index')->with('error', 'Error al cambiar estado: ' . $e->getMessage());
+        }
     }
 
-    public function destroy($id)
+    /**
+     * Elimina el producto en WooCommerce.
+     */
+    public function destroy($id, WooCommerceApiService $wcApi)
     {
-        $product = \Illuminate\Support\Facades\DB::table('products')->where('id', $id)->first();
-        if (!$product) abort(404);
-
-        if ($product->is_active) {
-            return redirect()->route('inventory.index')->with('error', 'No puedes eliminar un producto que está activo. Deshabilítalo primero.');
+        try {
+            $wcApi->deleteProduct((int)$id, true);
+            return redirect()->route('inventory.index')->with('success', 'Producto eliminado exitosamente de WooCommerce.');
+        } catch (\Exception $e) {
+            return redirect()->route('inventory.index')->with('error', 'Error al eliminar producto: ' . $e->getMessage());
         }
-
-        // Si tiene imagen, la borramos del storage
-        if ($product->image && file_exists(public_path($product->image))) {
-            unlink(public_path($product->image));
-        }
-
-        // Eliminar de base de datos
-        \Illuminate\Support\Facades\DB::table('products')->where('id', $id)->delete();
-
-        return redirect()->route('inventory.index')->with('success', 'Producto eliminado permanentemente.');
     }
 }

@@ -404,6 +404,19 @@
         });
     </script>
     @endif
+
+    @if(session('error') || !empty($error))
+    <script>
+        document.addEventListener('DOMContentLoaded', function() {
+            Swal.fire({
+                icon: 'error',
+                title: 'Error',
+                text: '{{ session("error") ?? $error }}',
+                confirmButtonColor: 'var(--primary-color)'
+            });
+        });
+    </script>
+    @endif
     
     @yield('scripts')
 </body>

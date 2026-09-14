@@ -198,8 +198,8 @@
             @endif
             
             <div class="form-group">
-                <label for="email">Correo Electrónico</label>
-                <input type="email" id="email" name="email" class="form-control" placeholder="admin@lizzglamour.com" required autofocus>
+                <label for="email">Usuario o Correo Electrónico</label>
+                <input type="text" id="email" name="email" class="form-control" placeholder="usuario o correo..." value="{{ old('email') }}" required autofocus>
             </div>
 
             <div class="form-group">

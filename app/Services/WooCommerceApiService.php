@@ -277,6 +277,8 @@ class WooCommerceApiService
         }
 
         $sku = trim($data['sku']);
+        $name = !empty($data['name']) ? trim($data['name']) : $sku;
+        $price = isset($data['price']) ? (string)$data['price'] : (isset($data['regular_price']) ? (string)$data['regular_price'] : '0');
         $inventory = $data['inventory'] ?? [];
 
         // Identificar colores y tallas presentes en la matriz enviada
@@ -299,9 +301,10 @@ class WooCommerceApiService
 
         // 1. Preparar payload del Producto Padre (Variable)
         $parentPayload = [
-            'name' => $sku,
+            'name' => $name,
             'type' => 'variable',
             'sku' => $sku,
+            'regular_price' => $price,
             'status' => (isset($data['is_active']) && !$data['is_active']) ? 'draft' : 'publish',
             'categories' => !empty($data['category_id']) ? [['id' => (int)$data['category_id']]] : [],
             'attributes' => [
@@ -384,7 +387,7 @@ class WooCommerceApiService
                         'manage_stock' => true,
                         'stock_quantity' => $amount,
                         'stock_status' => $stockStatus,
-                        'regular_price' => '0',
+                        'regular_price' => $price,
                     ];
                 } else {
                     if ($amount > 0 || $productId) {
@@ -393,7 +396,7 @@ class WooCommerceApiService
                             'manage_stock' => true,
                             'stock_quantity' => $amount,
                             'stock_status' => $stockStatus,
-                            'regular_price' => '0',
+                            'regular_price' => $price,
                             'attributes' => [
                                 [
                                     'id' => $colorAttrId,

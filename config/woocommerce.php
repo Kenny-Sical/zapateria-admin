@@ -34,4 +34,14 @@ return [
     'version' => env('WOOCOMMERCE_VERSION', 'wc/v3'),
     'verify_ssl' => env('WOOCOMMERCE_VERIFY_SSL', false),
     'timeout' => env('WOOCOMMERCE_TIMEOUT', 30),
+
+    /*
+    |--------------------------------------------------------------------------
+    | WordPress Uploads Directory
+    |--------------------------------------------------------------------------
+    |
+    | Ruta física absoluta al directorio wp-content/uploads de WordPress.
+    |
+    */
+    'wp_uploads_path' => env('WORDPRESS_UPLOADS_PATH', base_path('../zapateria-wordpress/wp-content/uploads')),
 ];

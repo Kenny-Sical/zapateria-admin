@@ -36,7 +36,9 @@ class InventoryController extends Controller
             $products = [];
             foreach ($rawProducts as $p) {
                 $productId = (int)$p['id'];
-                $sku = !empty($p['sku']) ? $p['sku'] : $p['name'];
+                $name = $p['name'] ?? '';
+                $sku = !empty($p['sku']) ? $p['sku'] : $name;
+                $price = $p['price'] ?? $p['regular_price'] ?? '';
                 $categoryName = !empty($p['categories']) ? $p['categories'][0]['name'] : 'Sin categoría';
                 $categoryId = !empty($p['categories']) ? (int)$p['categories'][0]['id'] : null;
                 $image = !empty($p['images']) ? $p['images'][0]['src'] : null;
@@ -50,6 +52,10 @@ class InventoryController extends Controller
                 $totalStock = 0;
 
                 foreach ($variations as $var) {
+                    if ($price === '' && !empty($var['regular_price'])) {
+                        $price = $var['regular_price'];
+                    }
+
                     $varColor = '';
                     $varSize = '';
                     foreach ($var['attributes'] as $attr) {
@@ -127,7 +133,9 @@ class InventoryController extends Controller
 
                 $productObj = new \stdClass();
                 $productObj->id = $productId;
+                $productObj->name = $name;
                 $productObj->sku = $sku;
+                $productObj->price = $price;
                 $productObj->category_name = $categoryName;
                 $productObj->category_id = $categoryId;
                 $productObj->image = $image;
@@ -181,7 +189,9 @@ class InventoryController extends Controller
     public function store(Request $request, WooCommerceApiService $wcApi)
     {
         $request->validate([
-            'sku' => 'required|string',
+            'name' => 'required|string|max:255',
+            'sku' => 'required|string|max:100',
+            'price' => 'required|numeric|min:0',
             'category_id' => 'required',
             'image' => 'nullable|image',
             'inventory' => 'required|array',
@@ -189,44 +199,14 @@ class InventoryController extends Controller
 
         $imageUrl = null;
         if ($request->hasFile('image')) {
-            $image = $request->file('image');
-            $imageNameStr = 'sku_' . preg_replace('/[^A-Za-z0-9\-]/', '', $request->sku) . '_' . time() . '.webp';
-            $destinationPath = public_path('storage/products');
-
-            if (!file_exists($destinationPath)) {
-                mkdir($destinationPath, 0755, true);
-            }
-
-            $sourceImage = null;
-            $mime = $image->getMimeType();
-            switch ($mime) {
-                case 'image/jpeg':
-                    $sourceImage = imagecreatefromjpeg($image->getPathname());
-                    break;
-                case 'image/png':
-                    $sourceImage = imagecreatefrompng($image->getPathname());
-                    imagepalettetotruecolor($sourceImage);
-                    imagealphablending($sourceImage, true);
-                    imagesavealpha($sourceImage, true);
-                    break;
-                case 'image/webp':
-                    $sourceImage = imagecreatefromwebp($image->getPathname());
-                    break;
-                case 'image/gif':
-                    $sourceImage = imagecreatefromgif($image->getPathname());
-                    break;
-            }
-
-            if ($sourceImage) {
-                imagewebp($sourceImage, $destinationPath . '/' . $imageNameStr, 85);
-                imagedestroy($sourceImage);
-                $imageUrl = asset('storage/products/' . $imageNameStr);
-            }
+            $imageUrl = $this->storeProductImage($request->file('image'), $request->sku);
         }
 
         try {
             $wcApi->saveFullVariableProduct([
+                'name' => $request->name,
                 'sku' => $request->sku,
+                'price' => $request->price,
                 'category_id' => $request->category_id,
                 'image_url' => $imageUrl,
                 'inventory' => $request->inventory,
@@ -260,11 +240,18 @@ class InventoryController extends Controller
             $p = $wcApi->getProduct((int)$id);
             $variations = $wcApi->getProductVariations((int)$id);
 
+            $name = $p['name'] ?? '';
+            $price = $p['price'] ?? $p['regular_price'] ?? '';
+
             $existingInventory = [];
             $selectedColors = [];
             $selectedSizes = [];
 
             foreach ($variations as $var) {
+                if ($price === '' && !empty($var['regular_price'])) {
+                    $price = $var['regular_price'];
+                }
+
                 $varColor = '';
                 $varSize = '';
                 foreach ($var['attributes'] as $attr) {
@@ -302,7 +289,9 @@ class InventoryController extends Controller
 
             $product = (object)[
                 'id' => (int)$p['id'],
-                'sku' => !empty($p['sku']) ? $p['sku'] : $p['name'],
+                'name' => $name,
+                'sku' => !empty($p['sku']) ? $p['sku'] : $name,
+                'price' => $price,
                 'category_id' => !empty($p['categories']) ? (int)$p['categories'][0]['id'] : null,
                 'image' => !empty($p['images']) ? $p['images'][0]['src'] : null,
                 'is_active' => ($p['status'] === 'publish'),
@@ -328,7 +317,9 @@ class InventoryController extends Controller
     public function update(Request $request, $id, WooCommerceApiService $wcApi)
     {
         $request->validate([
-            'sku' => 'required|string',
+            'name' => 'required|string|max:255',
+            'sku' => 'required|string|max:100',
+            'price' => 'required|numeric|min:0',
             'category_id' => 'required',
             'image' => 'nullable|image',
             'inventory' => 'required|array',
@@ -336,44 +327,14 @@ class InventoryController extends Controller
 
         $imageUrl = null;
         if ($request->hasFile('image')) {
-            $image = $request->file('image');
-            $imageNameStr = 'sku_' . preg_replace('/[^A-Za-z0-9\-]/', '', $request->sku) . '_' . time() . '.webp';
-            $destinationPath = public_path('storage/products');
-
-            if (!file_exists($destinationPath)) {
-                mkdir($destinationPath, 0755, true);
-            }
-
-            $sourceImage = null;
-            $mime = $image->getMimeType();
-            switch ($mime) {
-                case 'image/jpeg':
-                    $sourceImage = imagecreatefromjpeg($image->getPathname());
-                    break;
-                case 'image/png':
-                    $sourceImage = imagecreatefrompng($image->getPathname());
-                    imagepalettetotruecolor($sourceImage);
-                    imagealphablending($sourceImage, true);
-                    imagesavealpha($sourceImage, true);
-                    break;
-                case 'image/webp':
-                    $sourceImage = imagecreatefromwebp($image->getPathname());
-                    break;
-                case 'image/gif':
-                    $sourceImage = imagecreatefromgif($image->getPathname());
-                    break;
-            }
-
-            if ($sourceImage) {
-                imagewebp($sourceImage, $destinationPath . '/' . $imageNameStr, 85);
-                imagedestroy($sourceImage);
-                $imageUrl = asset('storage/products/' . $imageNameStr);
-            }
+            $imageUrl = $this->storeProductImage($request->file('image'), $request->sku);
         }
 
         try {
             $wcApi->saveFullVariableProduct([
+                'name' => $request->name,
                 'sku' => $request->sku,
+                'price' => $request->price,
                 'category_id' => $request->category_id,
                 'image_url' => $imageUrl,
                 'inventory' => $request->inventory,
@@ -409,5 +370,69 @@ class InventoryController extends Controller
         } catch (\Exception $e) {
             return redirect()->route('inventory.index')->with('error', 'Error al eliminar producto: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Procesa y almacena la imagen en el directorio wp-content/uploads de WordPress organizado por año y mes (YYYY/MM).
+     *
+     * @param  \Illuminate\Http\UploadedFile  $image
+     * @param  string  $sku
+     * @return string  URL pública accesible de la imagen en WordPress
+     */
+    protected function storeProductImage($image, string $sku): ?string
+    {
+        $year = date('Y');
+        $month = date('m');
+
+        // Directorio base de uploads de WordPress
+        $uploadsBase = config('woocommerce.wp_uploads_path', base_path('../zapateria-wordpress/wp-content/uploads'));
+        $targetDir = rtrim($uploadsBase, '/') . '/' . $year . '/' . $month;
+
+        if (!file_exists($targetDir)) {
+            mkdir($targetDir, 0775, true);
+        }
+
+        $cleanSku = preg_replace('/[^A-Za-z0-9\-]/', '', $sku);
+        if (empty($cleanSku)) {
+            $cleanSku = 'prod';
+        }
+        $fileName = 'sku_' . $cleanSku . '_' . time() . '.webp';
+        $destinationFile = $targetDir . '/' . $fileName;
+
+        $sourceImage = null;
+        $mime = $image->getMimeType();
+        switch ($mime) {
+            case 'image/jpeg':
+                $sourceImage = @imagecreatefromjpeg($image->getPathname());
+                break;
+            case 'image/png':
+                $sourceImage = @imagecreatefrompng($image->getPathname());
+                if ($sourceImage) {
+                    imagepalettetotruecolor($sourceImage);
+                    imagealphablending($sourceImage, true);
+                    imagesavealpha($sourceImage, true);
+                }
+                break;
+            case 'image/webp':
+                $sourceImage = @imagecreatefromwebp($image->getPathname());
+                break;
+            case 'image/gif':
+                $sourceImage = @imagecreatefromgif($image->getPathname());
+                break;
+        }
+
+        if ($sourceImage) {
+            imagewebp($sourceImage, $destinationFile, 85);
+            imagedestroy($sourceImage);
+        } else {
+            $extension = $image->getClientOriginalExtension() ?: 'jpg';
+            $fileName = 'sku_' . $cleanSku . '_' . time() . '.' . $extension;
+            $destinationFile = $targetDir . '/' . $fileName;
+            $image->move($targetDir, $fileName);
+        }
+
+        // Construir la URL completa apuntando al virtualhost de WordPress
+        $storeUrl = rtrim(config('woocommerce.store_url', 'http://zapateria-wordpress'), '/');
+        return "{$storeUrl}/wp-content/uploads/{$year}/{$month}/{$fileName}";
     }
 }

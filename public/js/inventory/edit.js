@@ -14,16 +14,30 @@ document.addEventListener('DOMContentLoaded', function () {
     const btnSubmit = document.getElementById('btnSubmit');
 
     // Inputs
+    const nameInput = document.getElementById('name');
     const skuInput = document.getElementById('sku');
+    const priceInput = document.getElementById('price');
     const categorySelect = document.getElementById('category_id');
     const colorsSelect = document.getElementById('colors');
     const sizesSelect = document.getElementById('sizes');
 
     btnNext.addEventListener('click', function () {
         // Validaciones del paso 1
+        const name = nameInput ? nameInput.value.trim() : '';
+        if (!name) {
+            Swal.fire('Faltan Datos', 'El nombre del producto es obligatorio.', 'warning');
+            return;
+        }
+
         const sku = skuInput.value.trim();
         if (!sku) {
             Swal.fire('Faltan Datos', 'El SKU del producto es obligatorio.', 'warning');
+            return;
+        }
+
+        const price = priceInput ? priceInput.value.trim() : '';
+        if (price === '' || isNaN(price) || parseFloat(price) < 0) {
+            Swal.fire('Faltan Datos', 'Debes ingresar un precio válido para el producto.', 'warning');
             return;
         }
 

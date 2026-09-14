@@ -183,10 +183,12 @@
                 <tr>
                     <th style="width: 40px;"></th>
                     <th style="width: 60px;">Imagen</th>
+                    <th>Producto</th>
                     <th>SKU</th>
+                    <th>Precio</th>
                     <th>Categoría</th>
                     <th>Total Stock</th>
-                    <th>Acciones</th>
+                    <th style="text-align: right;">Acciones</th>
                 </tr>
             </thead>
             <tbody>
@@ -198,7 +200,20 @@
                     </td>
                     <td>
                         @if($product->image)
-                            <img src="{{ asset($product->image) }}" alt="SKU {{ $product->sku }}" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
+                            @php
+                                $imgSrc = $product->image;
+                                if (str_starts_with($imgSrc, 'https://zapateria-wordpress')) {
+                                    $imgSrc = str_replace('https://zapateria-wordpress', 'http://zapateria-wordpress', $imgSrc);
+                                }
+                                if (!str_starts_with($imgSrc, 'http://') && !str_starts_with($imgSrc, 'https://')) {
+                                    if (str_starts_with($imgSrc, 'wp-content/')) {
+                                        $imgSrc = rtrim(config('woocommerce.store_url', 'http://zapateria-wordpress'), '/') . '/' . $imgSrc;
+                                    } else {
+                                        $imgSrc = asset($imgSrc);
+                                    }
+                                }
+                            @endphp
+                            <img src="{{ $imgSrc }}" alt="{{ $product->name ?: $product->sku }}" style="width: 45px; height: 45px; object-fit: cover; border-radius: 6px; border: 1px solid var(--border-color);">
                         @else
                             <div style="width: 45px; height: 45px; background-color: var(--border-color); border-radius: 6px; display: flex; align-items: center; justify-content: center;">
                                 <i class='bx bx-image' style="color: var(--text-secondary);"></i>
@@ -206,9 +221,21 @@
                         @endif
                     </td>
                     <td style="font-weight: 600; vertical-align: middle;">
-                        {{ $product->sku }}
+                        {{ $product->name ?: $product->sku }}
                         @if(!$product->is_active)
                             <span style="font-size: 0.75rem; background-color: var(--border-color); color: var(--text-secondary); padding: 0.1rem 0.4rem; border-radius: 4px; margin-left: 0.5rem; font-weight: normal;">Inactivo</span>
+                        @endif
+                    </td>
+                    <td style="vertical-align: middle; color: var(--text-secondary); font-family: monospace; font-size: 0.9rem;">
+                        {{ $product->sku }}
+                    </td>
+                    <td style="vertical-align: middle; font-weight: 600; color: var(--text-primary);">
+                        @if(!empty($product->price) && is_numeric($product->price))
+                            Q{{ number_format((float)$product->price, 2) }}
+                        @elseif(!empty($product->price))
+                            {{ $product->price }}
+                        @else
+                            <span style="color: var(--text-secondary); font-weight: normal;">-</span>
                         @endif
                     </td>
                     <td style="vertical-align: middle;">
@@ -250,7 +277,7 @@
                 
                 <!-- Fila Detalle (Inventario) -->
                 <tr class="detail-row" id="detail-{{ $product->id }}" style="display: none;">
-                    <td colspan="6" style="padding: 0; border-top: none; border-bottom: 2px solid var(--border-color);">
+                    <td colspan="8" style="padding: 0; border-top: none; border-bottom: 2px solid var(--border-color);">
                         <div style="padding: 1.5rem 2rem; background-color: var(--bg-color); box-shadow: inset 0 3px 5px -5px rgba(0,0,0,0.1);">
                             <div style="display: flex; align-items: center; margin-bottom: 1rem; gap: 0.5rem;">
                                 <i class='bx bx-list-ul' style="color: var(--primary-color); font-size: 1.25rem;"></i>
@@ -290,7 +317,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="6" style="text-align: center; color: var(--text-secondary); padding: 3rem;">
+                    <td colspan="8" style="text-align: center; color: var(--text-secondary); padding: 3rem;">
                         <i class='bx bx-info-circle' style="font-size: 2rem; margin-bottom: 0.5rem; display: block; color: var(--primary-color);"></i>
                         No hay registros para mostrar. Utiliza los filtros o agrega un nuevo producto.
                     </td>

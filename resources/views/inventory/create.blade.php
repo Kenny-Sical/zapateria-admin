@@ -188,15 +188,26 @@
             
             <div class="grid-2">
                 <div class="form-group">
+                    <label for="name">Nombre del Producto</label>
+                    <input type="text" class="form-control" id="name" name="name" value="{{ old('name') }}" placeholder="Ej: Sandalia de Tacón Elegante" required>
+                </div>
+                <div class="form-group">
                     <label for="sku">SKU del Producto</label>
-                    <input type="text" class="form-control" id="sku" name="sku" placeholder="Ej: ZAP-1234" required>
+                    <input type="text" class="form-control" id="sku" name="sku" value="{{ old('sku') }}" placeholder="Ej: ZAP-1234" required>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="price">Precio (Q)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" id="price" name="price" value="{{ old('price') }}" placeholder="Ej: 199.99" required>
                 </div>
                 <div class="form-group">
                     <label for="category_id">Categoría</label>
                     <select class="form-control" id="category_id" name="category_id" required>
                         <option value="">Selecciona una categoría...</option>
                         @foreach($categories as $category)
-                            <option value="{{ $category->id }}">{{ $category->name }}</option>
+                            <option value="{{ $category->id }}" {{ old('category_id') == $category->id ? 'selected' : '' }}>{{ $category->name }}</option>
                         @endforeach
                     </select>
                 </div>

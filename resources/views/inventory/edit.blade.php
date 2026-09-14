@@ -189,15 +189,26 @@
             
             <div class="grid-2">
                 <div class="form-group">
+                    <label for="name">Nombre del Producto</label>
+                    <input type="text" class="form-control" id="name" name="name" value="{{ old('name', $product->name) }}" placeholder="Ej: Sandalia de Tacón Elegante" required>
+                </div>
+                <div class="form-group">
                     <label for="sku">SKU del Producto</label>
-                    <input type="text" class="form-control" id="sku" name="sku" value="{{ $product->sku }}" placeholder="Ej: ZAP-1234" required>
+                    <input type="text" class="form-control" id="sku" name="sku" value="{{ old('sku', $product->sku) }}" placeholder="Ej: ZAP-1234" required>
+                </div>
+            </div>
+
+            <div class="grid-2">
+                <div class="form-group">
+                    <label for="price">Precio (Q)</label>
+                    <input type="number" step="0.01" min="0" class="form-control" id="price" name="price" value="{{ old('price', $product->price) }}" placeholder="Ej: 199.99" required>
                 </div>
                 <div class="form-group">
                     <label for="category_id">Categoría</label>
                     <select class="form-control" id="category_id" name="category_id" required>
                         <option value="">Selecciona una categoría...</option>
                         @foreach($categories as $category)
-                            <option value="{{ $category->id }}" {{ $product->category_id == $category->id ? 'selected' : '' }}>{{ $category->name }}</option>
+                            <option value="{{ $category->id }}" {{ old('category_id', $product->category_id) == $category->id ? 'selected' : '' }}>{{ $category->name }}</option>
                         @endforeach
                     </select>
                 </div>
@@ -207,8 +218,21 @@
                 <label for="image">Imagen del Producto (Opcional - sube una para reemplazarla)</label>
                 <input type="file" class="form-control" id="image" name="image" accept="image/*" style="padding: 0.5rem;">
                 @if($product->image)
+                    @php
+                        $imgUrl = $product->image;
+                        if (str_starts_with($imgUrl, 'https://zapateria-wordpress')) {
+                            $imgUrl = str_replace('https://zapateria-wordpress', 'http://zapateria-wordpress', $imgUrl);
+                        }
+                        if (!str_starts_with($imgUrl, 'http://') && !str_starts_with($imgUrl, 'https://')) {
+                            if (str_starts_with($imgUrl, 'wp-content/')) {
+                                $imgUrl = rtrim(config('woocommerce.store_url', 'http://zapateria-wordpress'), '/') . '/' . $imgUrl;
+                            } else {
+                                $imgUrl = asset($imgUrl);
+                            }
+                        }
+                    @endphp
                     <div style="margin-top: 0.5rem;">
-                        <img src="{{ asset($product->image) }}" alt="Imagen actual" style="height: 60px; border-radius: 4px; border: 1px solid var(--border-color);">
+                        <img src="{{ $imgUrl }}" alt="Imagen actual" style="height: 60px; border-radius: 4px; border: 1px solid var(--border-color);">
                     </div>
                 @endif
             </div>

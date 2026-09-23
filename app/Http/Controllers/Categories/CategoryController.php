@@ -52,6 +52,8 @@ class CategoryController extends Controller
                 'slug' => Str::slug($request->name),
             ]);
 
+            $wcApi->clearCategoriesCache();
+
             return redirect()->route('categories.index')->with('success', 'Categoría creada exitosamente en WooCommerce.');
         } catch (\Exception $e) {
             return back()->with('error', 'Error al crear la categoría: ' . $e->getMessage())->withInput();
@@ -84,6 +86,8 @@ class CategoryController extends Controller
                 'slug' => Str::slug($request->name),
             ]);
 
+            $wcApi->clearCategoriesCache();
+
             return redirect()->route('categories.index')->with('success', 'Categoría actualizada exitosamente en WooCommerce.');
         } catch (\Exception $e) {
             return back()->with('error', 'Error al actualizar la categoría: ' . $e->getMessage())->withInput();
@@ -94,6 +98,9 @@ class CategoryController extends Controller
     {
         try {
             $wcApi->deleteCategory((int)$id, true);
+
+            $wcApi->clearCategoriesCache();
+
             return redirect()->route('categories.index')->with('success', 'Categoría eliminada exitosamente en WooCommerce.');
         } catch (\Exception $e) {
             return redirect()->route('categories.index')->with('error', 'No se pudo eliminar la categoría: ' . $e->getMessage());

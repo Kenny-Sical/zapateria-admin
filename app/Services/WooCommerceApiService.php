@@ -2,6 +2,9 @@
 
 namespace App\Services;
 
+use Illuminate\Http\Client\Pool;
+use Illuminate\Http\Client\Response;
+use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
 use Illuminate\Support\Facades\Log;
 use Illuminate\Support\Str;
@@ -38,9 +41,9 @@ class WooCommerceApiService
     }
 
     /**
-     * Ejecuta una petición HTTP a la REST API de WooCommerce.
+     * Ejecuta una petición HTTP a la REST API de WooCommerce y devuelve la Response del HTTP Client.
      */
-    public function request(string $method, string $endpoint, array $params = [], array $data = [])
+    public function rawRequest(string $method, string $endpoint, array $params = [], array $data = []): Response
     {
         $url = $this->buildUrl($endpoint);
 
@@ -67,7 +70,15 @@ class WooCommerceApiService
             throw new \Exception($errorMsg, $response->status());
         }
 
-        return $response->json();
+        return $response;
+    }
+
+    /**
+     * Ejecuta una petición HTTP a la REST API de WooCommerce.
+     */
+    public function request(string $method, string $endpoint, array $params = [], array $data = [])
+    {
+        return $this->rawRequest($method, $endpoint, $params, $data)->json();
     }
 
     /* -------------------------------------------------------------------------- */
@@ -76,7 +87,20 @@ class WooCommerceApiService
 
     public function getCategories(array $params = ['per_page' => 100]): array
     {
+        $isDefault = empty($params) || ($params == ['per_page' => 100]);
+
+        if ($isDefault) {
+            return Cache::remember('wc_categories_list', 3600, function () use ($params) {
+                return $this->request('GET', 'products/categories', $params) ?? [];
+            });
+        }
+
         return $this->request('GET', 'products/categories', $params) ?? [];
+    }
+
+    public function clearCategoriesCache(): void
+    {
+        Cache::forget('wc_categories_list');
     }
 
     public function getCategory(int $id): array
@@ -86,17 +110,23 @@ class WooCommerceApiService
 
     public function createCategory(array $data): array
     {
-        return $this->request('POST', 'products/categories', [], $data) ?? [];
+        $result = $this->request('POST', 'products/categories', [], $data) ?? [];
+        $this->clearCategoriesCache();
+        return $result;
     }
 
     public function updateCategory(int $id, array $data): array
     {
-        return $this->request('PUT', "products/categories/{$id}", [], $data) ?? [];
+        $result = $this->request('PUT', "products/categories/{$id}", [], $data) ?? [];
+        $this->clearCategoriesCache();
+        return $result;
     }
 
     public function deleteCategory(int $id, bool $force = true): array
     {
-        return $this->request('DELETE', "products/categories/{$id}", ['force' => $force ? 'true' : 'false']) ?? [];
+        $result = $this->request('DELETE', "products/categories/{$id}", ['force' => $force ? 'true' : 'false']) ?? [];
+        $this->clearCategoriesCache();
+        return $result;
     }
 
     /* -------------------------------------------------------------------------- */
@@ -129,89 +159,120 @@ class WooCommerceApiService
      */
     public function ensureAttributesAndTermsExist(): array
     {
-        $existingAttributes = $this->getAttributes();
-        $attrByName = [];
-        foreach ($existingAttributes as $attr) {
-            $attrByName[strtolower($attr['name'])] = $attr;
-            $attrByName[strtolower($attr['slug'])] = $attr;
-        }
+        $cached = Cache::remember('wc_attributes_and_terms', 86400, function () {
+            $existingAttributes = $this->getAttributes();
+            $attrByName = [];
+            foreach ($existingAttributes as $attr) {
+                $attrByName[strtolower($attr['name'])] = $attr;
+                $attrByName[strtolower($attr['slug'])] = $attr;
+            }
 
-        // 1. Atributo Color
-        $colorAttr = $attrByName['color'] ?? $attrByName['pa_color'] ?? null;
-        if (!$colorAttr) {
-            $colorAttr = $this->createAttribute([
-                'name' => 'Color',
-                'slug' => 'pa_color',
-                'type' => 'select',
-                'order_by' => 'menu_order',
-                'has_archives' => true,
-            ]);
-        }
-        $colorAttrId = (int)$colorAttr['id'];
-
-        // 2. Atributo Talla
-        $sizeAttr = $attrByName['talla'] ?? $attrByName['pa_talla'] ?? null;
-        if (!$sizeAttr) {
-            $sizeAttr = $this->createAttribute([
-                'name' => 'Talla',
-                'slug' => 'pa_talla',
-                'type' => 'select',
-                'order_by' => 'menu_order',
-                'has_archives' => true,
-            ]);
-        }
-        $sizeAttrId = (int)$sizeAttr['id'];
-
-        // 3. Términos de Color
-        $existingColors = $this->getAttributeTerms($colorAttrId);
-        if (empty($existingColors)) {
-            $defaultColors = ['Negro', 'Blanco', 'Café', 'Azul', 'Rojo', 'Beige', 'Gris', 'Rosa', 'Vino'];
-            foreach ($defaultColors as $cName) {
-                $this->createAttributeTerm($colorAttrId, [
-                    'name' => $cName,
-                    'slug' => Str::slug($cName),
+            // 1. Atributo Color
+            $colorAttr = $attrByName['color'] ?? $attrByName['pa_color'] ?? null;
+            if (!$colorAttr) {
+                $colorAttr = $this->createAttribute([
+                    'name' => 'Color',
+                    'slug' => 'pa_color',
+                    'type' => 'select',
+                    'order_by' => 'menu_order',
+                    'has_archives' => true,
                 ]);
             }
+            $colorAttrId = (int)$colorAttr['id'];
+
+            // 2. Atributo Talla
+            $sizeAttr = $attrByName['talla'] ?? $attrByName['pa_talla'] ?? null;
+            if (!$sizeAttr) {
+                $sizeAttr = $this->createAttribute([
+                    'name' => 'Talla',
+                    'slug' => 'pa_talla',
+                    'type' => 'select',
+                    'order_by' => 'menu_order',
+                    'has_archives' => true,
+                ]);
+            }
+            $sizeAttrId = (int)$sizeAttr['id'];
+
+            // 3. Términos de Color
             $existingColors = $this->getAttributeTerms($colorAttrId);
-        }
-
-        // 4. Términos de Talla
-        $existingSizes = $this->getAttributeTerms($sizeAttrId);
-        if (empty($existingSizes)) {
-            $defaultSizes = ['35', '36', '37', '38', '39', '40', '41', '42', '43', '44'];
-            foreach ($defaultSizes as $sName) {
-                $this->createAttributeTerm($sizeAttrId, [
-                    'name' => $sName,
-                    'slug' => Str::slug($sName),
-                ]);
+            if (empty($existingColors)) {
+                $defaultColors = ['Negro', 'Blanco', 'Café', 'Azul', 'Rojo', 'Beige', 'Gris', 'Rosa', 'Vino'];
+                foreach ($defaultColors as $cName) {
+                    $this->createAttributeTerm($colorAttrId, [
+                        'name' => $cName,
+                        'slug' => Str::slug($cName),
+                    ]);
+                }
+                $existingColors = $this->getAttributeTerms($colorAttrId);
             }
-            $existingSizes = $this->getAttributeTerms($sizeAttrId);
-        }
 
-        // Formatear para compatibilidad con vistas Blade
+            // 4. Términos de Talla
+            $existingSizes = $this->getAttributeTerms($sizeAttrId);
+            if (empty($existingSizes)) {
+                $defaultSizes = ['35', '36', '37', '38', '39', '40', '41', '42', '43', '44'];
+                foreach ($defaultSizes as $sName) {
+                    $this->createAttributeTerm($sizeAttrId, [
+                        'name' => $sName,
+                        'slug' => Str::slug($sName),
+                    ]);
+                }
+                $existingSizes = $this->getAttributeTerms($sizeAttrId);
+            }
+
+            return [
+                'colors' => array_map(function ($item) {
+                    $item = (array)$item;
+                    return [
+                        'id' => (int)$item['id'],
+                        'name' => (string)$item['name'],
+                        'slug' => (string)$item['slug'],
+                    ];
+                }, $existingColors),
+                'sizes' => array_map(function ($item) {
+                    $item = (array)$item;
+                    return [
+                        'id' => (int)$item['id'],
+                        'name' => (string)$item['name'],
+                        'size' => (string)($item['size'] ?? $item['name']),
+                        'slug' => (string)$item['slug'],
+                    ];
+                }, $existingSizes),
+                'colorAttributeId' => $colorAttrId,
+                'sizeAttributeId' => $sizeAttrId,
+            ];
+        });
+
+        // Formatear como objetos para compatibilidad total con vistas Blade y controladores
         $colors = array_map(function ($item) {
+            $item = (array)$item;
             return (object)[
                 'id' => (int)$item['id'],
-                'name' => $item['name'],
-                'slug' => $item['slug'],
+                'name' => (string)$item['name'],
+                'slug' => (string)$item['slug'],
             ];
-        }, $existingColors);
+        }, $cached['colors'] ?? []);
 
         $sizes = array_map(function ($item) {
+            $item = (array)$item;
             return (object)[
                 'id' => (int)$item['id'],
-                'name' => $item['name'],
-                'size' => $item['name'], // Compatibilidad con $size->size en Blade
-                'slug' => $item['slug'],
+                'name' => (string)$item['name'],
+                'size' => (string)($item['size'] ?? $item['name']),
+                'slug' => (string)$item['slug'],
             ];
-        }, $existingSizes);
+        }, $cached['sizes'] ?? []);
 
         return [
             'colors' => $colors,
             'sizes' => $sizes,
-            'colorAttributeId' => $colorAttrId,
-            'sizeAttributeId' => $sizeAttrId,
+            'colorAttributeId' => (int)$cached['colorAttributeId'],
+            'sizeAttributeId' => (int)$cached['sizeAttributeId'],
         ];
+    }
+
+    public function clearAttributesCache(): void
+    {
+        Cache::forget('wc_attributes_and_terms');
     }
 
     /* -------------------------------------------------------------------------- */
@@ -220,7 +281,38 @@ class WooCommerceApiService
 
     public function getProducts(array $params = ['per_page' => 50]): array
     {
+        if (!isset($params['_fields'])) {
+            $params['_fields'] = 'id,name,sku,price,regular_price,categories,images,status';
+        }
+
         return $this->request('GET', 'products', $params) ?? [];
+    }
+
+    /**
+     * Obtiene productos con información de paginación desde los headers X-WP-Total y X-WP-TotalPages.
+     *
+     * @param array $params
+     * @return array ['data' => array, 'total' => int, 'totalPages' => int]
+     */
+    public function getProductsPaginated(array $params = []): array
+    {
+        if (!isset($params['_fields'])) {
+            $params['_fields'] = 'id,name,sku,price,regular_price,categories,images,status';
+        }
+
+        $response = $this->rawRequest('GET', 'products', $params);
+        $data = $response->json() ?? [];
+        $totalHeader = $response->header('X-WP-Total');
+        $totalPagesHeader = $response->header('X-WP-TotalPages');
+
+        $total = ($totalHeader !== null && $totalHeader !== '') ? (int)$totalHeader : count($data);
+        $totalPages = ($totalPagesHeader !== null && $totalPagesHeader !== '') ? (int)$totalPagesHeader : 1;
+
+        return [
+            'data' => $data,
+            'total' => $total,
+            'totalPages' => $totalPages,
+        ];
     }
 
     public function getProduct(int $id): array
@@ -230,7 +322,55 @@ class WooCommerceApiService
 
     public function getProductVariations(int $productId, array $params = ['per_page' => 100]): array
     {
+        if (!isset($params['_fields'])) {
+            $params['_fields'] = 'id,regular_price,attributes,stock_quantity';
+        }
+
         return $this->request('GET', "products/{$productId}/variations", $params) ?? [];
+    }
+
+    /**
+     * Obtiene las variaciones de múltiples productos concurrentemente en paralelo usando Http::pool().
+     *
+     * @param array $productIds
+     * @return array Mapa [productId => variationsArray]
+     */
+    public function getMultipleProductVariations(array $productIds): array
+    {
+        if (empty($productIds)) {
+            return [];
+        }
+
+        $responses = Http::pool(function (Pool $pool) use ($productIds) {
+            $requests = [];
+            foreach ($productIds as $id) {
+                $url = $this->buildUrl("products/{$id}/variations");
+                $authParams = [
+                    'consumer_key' => $this->consumerKey,
+                    'consumer_secret' => $this->consumerSecret,
+                    'per_page' => 100,
+                    '_fields' => 'id,regular_price,attributes,stock_quantity',
+                ];
+
+                $requests[(string)$id] = $pool->as((string)$id)
+                    ->timeout($this->timeout)
+                    ->withOptions(['verify' => $this->verifySsl])
+                    ->get($url, $authParams);
+            }
+            return $requests;
+        });
+
+        $result = [];
+        foreach ($productIds as $id) {
+            $resp = $responses[(string)$id] ?? null;
+            if ($resp instanceof Response && $resp->successful()) {
+                $result[$id] = $resp->json() ?? [];
+            } else {
+                $result[$id] = [];
+            }
+        }
+
+        return $result;
     }
 
     public function createProduct(array $data): array

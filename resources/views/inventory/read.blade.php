@@ -115,6 +115,64 @@
     .table tbody tr:hover {
         background-color: #FAFAFA;
     }
+    
+    .pagination-container {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        padding-top: 1.5rem;
+        margin-top: 1.5rem;
+        border-top: 1px solid var(--border-color);
+        flex-wrap: wrap;
+        gap: 1rem;
+    }
+    .pagination-info {
+        font-size: 0.875rem;
+        color: var(--text-secondary);
+    }
+    .pagination-info strong {
+        color: var(--text-primary);
+        font-weight: 600;
+    }
+    .pagination-list {
+        display: flex;
+        list-style: none;
+        gap: 0.35rem;
+        align-items: center;
+        margin: 0;
+        padding: 0;
+    }
+    .pagination-btn {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        min-width: 36px;
+        height: 36px;
+        padding: 0 0.5rem;
+        border: 1px solid var(--border-color);
+        border-radius: 8px;
+        background-color: var(--surface-color);
+        color: var(--text-primary);
+        text-decoration: none;
+        font-size: 0.875rem;
+        font-weight: 500;
+        transition: all 0.2s ease;
+    }
+    .pagination-btn:hover:not(.disabled):not(.active) {
+        border-color: var(--primary-color);
+        color: var(--primary-color);
+        background-color: var(--primary-soft);
+    }
+    .pagination-btn.active {
+        background-color: var(--primary-color);
+        border-color: var(--primary-color);
+        color: #FFFFFF;
+        font-weight: 600;
+    }
+    .pagination-btn.disabled {
+        opacity: 0.4;
+        cursor: not-allowed;
+    }
 </style>
 
 <div class="card">
@@ -326,6 +384,62 @@
             </tbody>
         </table>
     </div>
+
+    {{-- Controles de Paginación --}}
+    @if(isset($products) && $products instanceof \Illuminate\Pagination\LengthAwarePaginator && $products->total() > 0)
+    <div class="pagination-container">
+        <div class="pagination-info">
+            Mostrando <strong>{{ $products->firstItem() ?? 0 }}</strong> a <strong>{{ $products->lastItem() ?? 0 }}</strong> de <strong>{{ $products->total() }}</strong> productos
+        </div>
+
+        @if($products->hasPages())
+        <ul class="pagination-list">
+            {{-- Botón Anterior --}}
+            @if ($products->onFirstPage())
+                <li>
+                    <span class="pagination-btn disabled" aria-disabled="true">
+                        <i class='bx bx-chevron-left'></i>
+                    </span>
+                </li>
+            @else
+                <li>
+                    <a href="{{ $products->previousPageUrl() }}" class="pagination-btn" rel="prev" title="Página anterior">
+                        <i class='bx bx-chevron-left'></i>
+                    </a>
+                </li>
+            @endif
+
+            {{-- Páginas numéricas --}}
+            @foreach ($products->getUrlRange(max(1, $products->currentPage() - 2), min($products->lastPage(), $products->currentPage() + 2)) as $page => $url)
+                @if ($page == $products->currentPage())
+                    <li>
+                        <span class="pagination-btn active" aria-current="page">{{ $page }}</span>
+                    </li>
+                @else
+                    <li>
+                        <a href="{{ $url }}" class="pagination-btn">{{ $page }}</a>
+                    </li>
+                @endif
+            @endforeach
+
+            {{-- Botón Siguiente --}}
+            @if ($products->hasMorePages())
+                <li>
+                    <a href="{{ $products->nextPageUrl() }}" class="pagination-btn" rel="next" title="Página siguiente">
+                        <i class='bx bx-chevron-right'></i>
+                    </a>
+                </li>
+            @else
+                <li>
+                    <span class="pagination-btn disabled" aria-disabled="true">
+                        <i class='bx bx-chevron-right'></i>
+                    </span>
+                </li>
+            @endif
+        </ul>
+        @endif
+    </div>
+    @endif
 </div>
 @endsection
 

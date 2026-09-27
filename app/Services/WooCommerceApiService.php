@@ -11,6 +11,8 @@ use Illuminate\Support\Str;
 
 class WooCommerceApiService
 {
+    private const SHOE_AUDIENCE_META_KEY = '_shoe_audience';
+
     protected string $storeUrl;
     protected string $consumerKey;
     protected string $consumerSecret;
@@ -154,7 +156,7 @@ class WooCommerceApiService
     }
 
     /**
-     * Asegura que los atributos globales 'Color' y 'Talla' y sus términos existan en WooCommerce.
+     * Asegura que los atributos globales 'Color', 'Talla' y 'Público' y sus términos existan en WooCommerce.
      * Retorna la lista formateada para los selectores de las vistas.
      */
     public function ensureAttributesAndTermsExist(): array
@@ -193,7 +195,27 @@ class WooCommerceApiService
             }
             $sizeAttrId = (int)$sizeAttr['id'];
 
-            // 3. Términos de Color
+            // 3. Atributo Público
+            $audienceAttr = $attrByName['público']
+                ?? $attrByName['publico']
+                ?? $attrByName['pa_publico']
+                ?? $attrByName['pa_genero']
+                ?? $attrByName['genero']
+                ?? $attrByName['género']
+                ?? null;
+
+            if (!$audienceAttr) {
+                $audienceAttr = $this->createAttribute([
+                    'name' => 'Público',
+                    'slug' => 'pa_publico',
+                    'type' => 'select',
+                    'order_by' => 'menu_order',
+                    'has_archives' => true,
+                ]);
+            }
+            $audienceAttrId = (int)$audienceAttr['id'];
+
+            // 4. Términos de Color
             $existingColors = $this->getAttributeTerms($colorAttrId);
             if (empty($existingColors)) {
                 $defaultColors = ['Negro', 'Blanco', 'Café', 'Azul', 'Rojo', 'Beige', 'Gris', 'Rosa', 'Vino'];
@@ -206,7 +228,7 @@ class WooCommerceApiService
                 $existingColors = $this->getAttributeTerms($colorAttrId);
             }
 
-            // 4. Términos de Talla
+            // 5. Términos de Talla
             $existingSizes = $this->getAttributeTerms($sizeAttrId);
             if (empty($existingSizes)) {
                 $defaultSizes = ['35', '36', '37', '38', '39', '40', '41', '42', '43', '44'];
@@ -217,6 +239,33 @@ class WooCommerceApiService
                     ]);
                 }
                 $existingSizes = $this->getAttributeTerms($sizeAttrId);
+            }
+
+            // 6. Términos de Público
+            $existingAudiences = $this->getAttributeTerms($audienceAttrId);
+            $existingAudienceSlugs = array_map(function ($item) {
+                return strtolower(((array)$item)['slug'] ?? '');
+            }, $existingAudiences);
+
+            $requiredAudiences = [
+                ['name' => 'Hombre', 'slug' => 'hombre'],
+                ['name' => 'Mujer', 'slug' => 'mujer'],
+                ['name' => 'Niño', 'slug' => 'nino'],
+            ];
+
+            $createdAnyAudience = false;
+            foreach ($requiredAudiences as $reqAud) {
+                if (!in_array($reqAud['slug'], $existingAudienceSlugs, true)) {
+                    $this->createAttributeTerm($audienceAttrId, [
+                        'name' => $reqAud['name'],
+                        'slug' => $reqAud['slug'],
+                    ]);
+                    $createdAnyAudience = true;
+                }
+            }
+
+            if ($createdAnyAudience) {
+                $existingAudiences = $this->getAttributeTerms($audienceAttrId);
             }
 
             return [
@@ -237,8 +286,17 @@ class WooCommerceApiService
                         'slug' => (string)$item['slug'],
                     ];
                 }, $existingSizes),
+                'audiences' => array_map(function ($item) {
+                    $item = (array)$item;
+                    return [
+                        'id' => (int)$item['id'],
+                        'name' => (string)$item['name'],
+                        'slug' => (string)$item['slug'],
+                    ];
+                }, $existingAudiences),
                 'colorAttributeId' => $colorAttrId,
                 'sizeAttributeId' => $sizeAttrId,
+                'audienceAttributeId' => $audienceAttrId,
             ];
         });
 
@@ -262,11 +320,22 @@ class WooCommerceApiService
             ];
         }, $cached['sizes'] ?? []);
 
+        $audiences = array_map(function ($item) {
+            $item = (array)$item;
+            return (object)[
+                'id' => (int)$item['id'],
+                'name' => (string)$item['name'],
+                'slug' => (string)$item['slug'],
+            ];
+        }, $cached['audiences'] ?? []);
+
         return [
             'colors' => $colors,
             'sizes' => $sizes,
+            'audiences' => $audiences,
             'colorAttributeId' => (int)$cached['colorAttributeId'],
             'sizeAttributeId' => (int)$cached['sizeAttributeId'],
+            'audienceAttributeId' => (int)($cached['audienceAttributeId'] ?? 0),
         ];
     }
 
@@ -282,7 +351,7 @@ class WooCommerceApiService
     public function getProducts(array $params = ['per_page' => 50]): array
     {
         if (!isset($params['_fields'])) {
-            $params['_fields'] = 'id,name,sku,price,regular_price,categories,images,status';
+            $params['_fields'] = 'id,name,sku,price,regular_price,categories,images,status,attributes';
         }
 
         return $this->request('GET', 'products', $params) ?? [];
@@ -297,7 +366,7 @@ class WooCommerceApiService
     public function getProductsPaginated(array $params = []): array
     {
         if (!isset($params['_fields'])) {
-            $params['_fields'] = 'id,name,sku,price,regular_price,categories,images,status';
+            $params['_fields'] = 'id,name,sku,price,regular_price,categories,images,status,attributes';
         }
 
         $response = $this->rawRequest('GET', 'products', $params);
@@ -318,6 +387,59 @@ class WooCommerceApiService
     public function getProduct(int $id): array
     {
         return $this->request('GET', "products/{$id}") ?? [];
+    }
+
+    public function getProductAudience(array $product): ?string
+    {
+        if (!empty($product['attributes']) && is_array($product['attributes'])) {
+            foreach ($product['attributes'] as $attr) {
+                $name = strtolower($attr['name'] ?? '');
+                $slug = strtolower($attr['slug'] ?? '');
+                $targets = ['público', 'publico', 'pa_publico', 'género', 'genero', 'pa_genero'];
+                if (in_array($name, $targets, true) || in_array($slug, $targets, true)) {
+                    $options = $attr['options'] ?? [];
+                    if (!empty($options) && is_array($options)) {
+                        $val = Str::slug(strtolower(trim((string)$options[0])));
+                        if (in_array($val, ['hombre', 'mujer', 'nino'], true)) {
+                            return $val;
+                        }
+                        if (str_starts_with($val, 'hombr')) {
+                            return 'hombre';
+                        }
+                        if (str_starts_with($val, 'muj')) {
+                            return 'mujer';
+                        }
+                        if (str_starts_with($val, 'nin')) {
+                            return 'nino';
+                        }
+                    }
+                }
+            }
+        }
+
+        foreach ($product['meta_data'] ?? [] as $meta) {
+            if (($meta['key'] ?? null) === self::SHOE_AUDIENCE_META_KEY) {
+                $val = $meta['value'] ?? null;
+                if ($val !== null && $val !== '') {
+                    $slug = Str::slug(strtolower(trim((string)$val)));
+                    if (in_array($slug, ['hombre', 'mujer', 'nino'], true)) {
+                        return $slug;
+                    }
+                    if (str_starts_with($slug, 'hombr')) {
+                        return 'hombre';
+                    }
+                    if (str_starts_with($slug, 'muj')) {
+                        return 'mujer';
+                    }
+                    if (str_starts_with($slug, 'nin')) {
+                        return 'nino';
+                    }
+                    return $val;
+                }
+            }
+        }
+
+        return null;
     }
 
     public function getProductVariations(int $productId, array $params = ['per_page' => 100]): array
@@ -396,7 +518,7 @@ class WooCommerceApiService
     /**
      * Guarda o actualiza un producto variable y todas sus variaciones (Matriz Color x Talla) vía REST API.
      *
-     * @param array $data ['sku' => string, 'category_id' => int, 'image_url' => ?string, 'inventory' => array, 'is_active' => ?bool]
+    * @param array $data ['sku' => string, 'category_id' => int, 'audience' => string, 'image_url' => ?string, 'inventory' => array, 'is_active' => ?bool]
      * @param int|null $productId ID del producto si es actualización
      * @return array Producto creado o actualizado
      */
@@ -405,6 +527,7 @@ class WooCommerceApiService
         $meta = $this->ensureAttributesAndTermsExist();
         $colorAttrId = $meta['colorAttributeId'];
         $sizeAttrId = $meta['sizeAttributeId'];
+        $audienceAttrId = $meta['audienceAttributeId'] ?? 0;
 
         $colorMap = [];
         foreach ($meta['colors'] as $c) {
@@ -440,6 +563,52 @@ class WooCommerceApiService
         $usedSizeNames = array_values(array_unique($usedSizeNames));
 
         // 1. Preparar payload del Producto Padre (Variable)
+        $parentAttributes = [
+            [
+                'id' => $colorAttrId,
+                'name' => 'Color',
+                'position' => 0,
+                'visible' => true,
+                'variation' => true,
+                'options' => $usedColorNames,
+            ],
+            [
+                'id' => $sizeAttrId,
+                'name' => 'Talla',
+                'position' => 1,
+                'visible' => true,
+                'variation' => true,
+                'options' => $usedSizeNames,
+            ],
+        ];
+
+        $parentMetaData = [];
+
+        if (!empty($data['audience'])) {
+            $rawAudience = strtolower(trim((string)$data['audience']));
+            $audienceSlug = Str::slug($rawAudience);
+            $audienceMap = [
+                'hombre' => 'Hombre',
+                'mujer' => 'Mujer',
+                'nino' => 'Niño',
+            ];
+            $audienceName = $audienceMap[$audienceSlug] ?? ucfirst($rawAudience);
+
+            $parentAttributes[] = [
+                'id' => $audienceAttrId,
+                'name' => 'Público',
+                'position' => 2,
+                'visible' => true,
+                'variation' => false,
+                'options' => [$audienceName],
+            ];
+
+            $parentMetaData[] = [
+                'key' => self::SHOE_AUDIENCE_META_KEY,
+                'value' => $audienceSlug,
+            ];
+        }
+
         $parentPayload = [
             'name' => $name,
             'type' => 'variable',
@@ -447,24 +616,8 @@ class WooCommerceApiService
             'regular_price' => $price,
             'status' => (isset($data['is_active']) && !$data['is_active']) ? 'draft' : 'publish',
             'categories' => !empty($data['category_id']) ? [['id' => (int)$data['category_id']]] : [],
-            'attributes' => [
-                [
-                    'id' => $colorAttrId,
-                    'name' => 'Color',
-                    'position' => 0,
-                    'visible' => true,
-                    'variation' => true,
-                    'options' => $usedColorNames,
-                ],
-                [
-                    'id' => $sizeAttrId,
-                    'name' => 'Talla',
-                    'position' => 1,
-                    'visible' => true,
-                    'variation' => true,
-                    'options' => $usedSizeNames,
-                ],
-            ],
+            'meta_data' => $parentMetaData,
+            'attributes' => $parentAttributes,
         ];
 
         if (!empty($data['image_url'])) {

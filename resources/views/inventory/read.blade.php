@@ -227,6 +227,16 @@
                     @endforeach
                 </select>
             </div>
+
+            <div class="filter-group">
+                <label>Público</label>
+                <select class="form-control" name="audience">
+                    <option value="">Todos...</option>
+                    <option value="hombre" {{ request('audience') === 'hombre' ? 'selected' : '' }}>Hombre</option>
+                    <option value="mujer" {{ request('audience') === 'mujer' ? 'selected' : '' }}>Mujer</option>
+                    <option value="nino" {{ request('audience') === 'nino' ? 'selected' : '' }}>Niño</option>
+                </select>
+            </div>
             
             <div class="filter-group" style="display: flex; align-items: flex-end; gap: 0.5rem;">
                 <button type="submit" class="btn btn-primary" style="flex: 1;"><i class='bx bx-search'></i> Filtrar</button>
@@ -243,6 +253,7 @@
                     <th style="width: 60px;">Imagen</th>
                     <th>Producto</th>
                     <th>SKU</th>
+                    <th>Público</th>
                     <th>Precio</th>
                     <th>Categoría</th>
                     <th>Total Stock</th>
@@ -286,6 +297,15 @@
                     </td>
                     <td style="vertical-align: middle; color: var(--text-secondary); font-family: monospace; font-size: 0.9rem;">
                         {{ $product->sku }}
+                    </td>
+                    <td style="vertical-align: middle;">
+                        @if(!empty($product->audience_label))
+                            <span style="background-color: var(--primary-soft); color: var(--primary-color); padding: 0.2rem 0.6rem; border-radius: 20px; font-size: 0.8rem; font-weight: 500;">
+                                {{ $product->audience_label }}
+                            </span>
+                        @else
+                            <span style="color: var(--text-secondary); font-size: 0.85rem;">-</span>
+                        @endif
                     </td>
                     <td style="vertical-align: middle; font-weight: 600; color: var(--text-primary);">
                         @if(!empty($product->price) && is_numeric($product->price))
@@ -335,7 +355,7 @@
                 
                 <!-- Fila Detalle (Inventario) -->
                 <tr class="detail-row" id="detail-{{ $product->id }}" style="display: none;">
-                    <td colspan="8" style="padding: 0; border-top: none; border-bottom: 2px solid var(--border-color);">
+                    <td colspan="9" style="padding: 0; border-top: none; border-bottom: 2px solid var(--border-color);">
                         <div style="padding: 1.5rem 2rem; background-color: var(--bg-color); box-shadow: inset 0 3px 5px -5px rgba(0,0,0,0.1);">
                             <div style="display: flex; align-items: center; margin-bottom: 1rem; gap: 0.5rem;">
                                 <i class='bx bx-list-ul' style="color: var(--primary-color); font-size: 1.25rem;"></i>
@@ -347,7 +367,7 @@
                                     <tr style="background-color: #FAFAFA;">
                                         <th style="padding: 0.75rem 1rem; text-align: left; width: 120px;">Color \ Talla</th>
                                         @foreach($product->matrix_sizes as $size_id => $size_name)
-                                            <th style="padding: 0.75rem 1rem; text-align: center;">{{ $size_name }}</th>
+                                             <th style="padding: 0.75rem 1rem; text-align: center;">{{ $size_name }}</th>
                                         @endforeach
                                     </tr>
                                 </thead>
@@ -375,7 +395,7 @@
                 </tr>
                 @empty
                 <tr>
-                    <td colspan="8" style="text-align: center; color: var(--text-secondary); padding: 3rem;">
+                    <td colspan="9" style="text-align: center; color: var(--text-secondary); padding: 3rem;">
                         <i class='bx bx-info-circle' style="font-size: 2rem; margin-bottom: 0.5rem; display: block; color: var(--primary-color);"></i>
                         No hay registros para mostrar. Utiliza los filtros o agrega un nuevo producto.
                     </td>

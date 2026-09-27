@@ -215,6 +215,16 @@
             </div>
 
             <div class="form-group">
+                <label for="audience">Dirigido a</label>
+                <select class="form-control" id="audience" name="audience" required>
+                    <option value="">Selecciona una clasificación...</option>
+                    <option value="hombre" {{ old('audience', $product->audience) === 'hombre' ? 'selected' : '' }}>Hombre</option>
+                    <option value="mujer" {{ old('audience', $product->audience) === 'mujer' ? 'selected' : '' }}>Mujer</option>
+                    <option value="nino" {{ old('audience', $product->audience) === 'nino' ? 'selected' : '' }}>Niño</option>
+                </select>
+            </div>
+
+            <div class="form-group">
                 <label for="image">Imagen del Producto (Opcional - sube una para reemplazarla)</label>
                 <input type="file" class="form-control" id="image" name="image" accept="image/*" style="padding: 0.5rem;">
                 @if($product->image)

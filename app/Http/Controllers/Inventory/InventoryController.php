@@ -18,6 +18,7 @@ class InventoryController extends Controller
             $meta = $wcApi->ensureAttributesAndTermsExist();
             $colors = $meta['colors'];
             $sizes = $meta['sizes'];
+            $audiences = $meta['audiences'] ?? [];
 
             $rawCategories = $wcApi->getCategories(['per_page' => 100]);
             $categories = array_map(function ($c) {
@@ -61,6 +62,7 @@ class InventoryController extends Controller
                 $categoryId = !empty($p['categories']) ? (int)$p['categories'][0]['id'] : null;
                 $image = !empty($p['images']) ? $p['images'][0]['src'] : null;
                 $isActive = ($p['status'] === 'publish');
+                $audience = $wcApi->getProductAudience($p);
 
                 $variations = $allVariations[$productId] ?? [];
 
@@ -122,9 +124,15 @@ class InventoryController extends Controller
 
                 ksort($matrixSizes);
 
-                // Aplicar filtros locales de categoría, color o talla
+                // Aplicar filtros locales de categoría, público, color o talla
                 if ($request->filled('categories') && !in_array($categoryId, (array)$request->categories)) {
                     continue;
+                }
+
+                if ($request->filled('audience') && $request->audience !== '') {
+                    if ($audience !== strtolower($request->audience)) {
+                        continue;
+                    }
                 }
 
                 if ($request->filled('colors')) {
@@ -156,6 +164,13 @@ class InventoryController extends Controller
                 $productObj->price = $price;
                 $productObj->category_name = $categoryName;
                 $productObj->category_id = $categoryId;
+                $productObj->audience = $audience;
+                $productObj->audience_label = match ($audience) {
+                    'hombre' => 'Hombre',
+                    'mujer' => 'Mujer',
+                    'nino' => 'Niño',
+                    default => null,
+                };
                 $productObj->image = $image;
                 $productObj->is_active = $isActive;
                 $productObj->inventory = $inventory;
@@ -176,13 +191,14 @@ class InventoryController extends Controller
 
             $products = $paginatedProducts;
 
-            return view('inventory.read', compact('categories', 'colors', 'sizes', 'products'));
+            return view('inventory.read', compact('categories', 'colors', 'sizes', 'audiences', 'products'));
         } catch (\Exception $e) {
             $emptyPaginator = new LengthAwarePaginator([], 0, 15, 1);
             return view('inventory.read', [
                 'categories' => [],
                 'colors' => [],
                 'sizes' => [],
+                'audiences' => [],
                 'products' => $emptyPaginator,
             ])->with('error', 'Error al consultar WooCommerce API: ' . $e->getMessage());
         }
@@ -197,6 +213,7 @@ class InventoryController extends Controller
             $meta = $wcApi->ensureAttributesAndTermsExist();
             $colors = $meta['colors'];
             $sizes = $meta['sizes'];
+            $audiences = $meta['audiences'] ?? [];
 
             $rawCategories = $wcApi->getCategories(['per_page' => 100]);
             $categories = array_map(function ($c) {
@@ -206,7 +223,7 @@ class InventoryController extends Controller
                 ];
             }, $rawCategories);
 
-            return view('inventory.create', compact('categories', 'colors', 'sizes'));
+            return view('inventory.create', compact('categories', 'colors', 'sizes', 'audiences'));
         } catch (\Exception $e) {
             return redirect()->route('inventory.index')->with('error', 'Error al cargar formulario: ' . $e->getMessage());
         }
@@ -222,6 +239,7 @@ class InventoryController extends Controller
             'sku' => 'required|string|max:100',
             'price' => 'required|numeric|min:0',
             'category_id' => 'required',
+            'audience' => 'required|string|in:hombre,mujer,nino',
             'image' => 'nullable|image',
             'inventory' => 'required|array',
         ]);
@@ -237,6 +255,7 @@ class InventoryController extends Controller
                 'sku' => $request->sku,
                 'price' => $request->price,
                 'category_id' => $request->category_id,
+                'audience' => $request->audience,
                 'image_url' => $imageUrl,
                 'inventory' => $request->inventory,
                 'is_active' => true,
@@ -260,6 +279,7 @@ class InventoryController extends Controller
             $meta = $wcApi->ensureAttributesAndTermsExist();
             $colors = $meta['colors'];
             $sizes = $meta['sizes'];
+            $audiences = $meta['audiences'] ?? [];
 
             $rawCategories = $wcApi->getCategories(['per_page' => 100]);
             $categories = array_map(function ($c) {
@@ -325,6 +345,7 @@ class InventoryController extends Controller
                 'sku' => !empty($p['sku']) ? $p['sku'] : $name,
                 'price' => $price,
                 'category_id' => !empty($p['categories']) ? (int)$p['categories'][0]['id'] : null,
+                'audience' => $wcApi->getProductAudience($p),
                 'image' => !empty($p['images']) ? $p['images'][0]['src'] : null,
                 'is_active' => ($p['status'] === 'publish'),
             ];
@@ -334,6 +355,7 @@ class InventoryController extends Controller
                 'categories',
                 'colors',
                 'sizes',
+                'audiences',
                 'existingInventory',
                 'selectedColors',
                 'selectedSizes'
@@ -353,6 +375,7 @@ class InventoryController extends Controller
             'sku' => 'required|string|max:100',
             'price' => 'required|numeric|min:0',
             'category_id' => 'required',
+            'audience' => 'required|string|in:hombre,mujer,nino',
             'image' => 'nullable|image',
             'inventory' => 'required|array',
         ]);
@@ -368,6 +391,7 @@ class InventoryController extends Controller
                 'sku' => $request->sku,
                 'price' => $request->price,
                 'category_id' => $request->category_id,
+                'audience' => $request->audience,
                 'image_url' => $imageUrl,
                 'inventory' => $request->inventory,
             ], (int)$id);

@@ -12,7 +12,11 @@ class CategoryController extends Controller
     public function index(Request $request, WooCommerceApiService $wcApi)
     {
         try {
-            $rawCategories = $wcApi->getCategories(['per_page' => 100]);
+            $rawCategories = $wcApi->getCategories([
+                'per_page' => 100,
+                'orderby' => 'id',
+                'order' => 'asc',
+            ]);
             $categories = array_map(function ($cat) {
                 return (object)[
                     'id' => (int)$cat['id'],

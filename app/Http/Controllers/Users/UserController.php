@@ -26,7 +26,7 @@ class UserController extends Controller
             $query->where('user_email', 'like', '%' . $request->email . '%');
         }
 
-        $users = $query->orderBy('ID', 'desc')->get();
+        $users = $query->orderBy('ID', 'asc')->get();
 
         return view('users.index', compact('users'));
     }

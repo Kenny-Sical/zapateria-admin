@@ -28,8 +28,8 @@ class InventoryController extends Controller
                 ];
             }, $rawCategories);
 
-            $perPage = (int) $request->input('per_page', 15);
-            $currentPage = (int) $request->input('page', 1);
+            $perPage = max(1, min(100, (int) $request->input('per_page', 15)));
+            $currentPage = max(1, (int) $request->input('page', 1));
 
             $params = [
                 'per_page' => $perPage,
@@ -45,12 +45,21 @@ class InventoryController extends Controller
                 $params['category'] = $categoryFilter;
             }
 
-            $productsResult = $wcApi->getProductsPaginated($params);
+            if ($request->filled('audience') && in_array($request->audience, ['hombre', 'mujer', 'nino'])) {
+                $params['audience'] = $request->audience;
+            }
+
+            if ($request->filled('colors')) {
+                $params['colors'] = is_array($request->colors) ? implode(',', $request->colors) : $request->colors;
+            }
+
+            if ($request->filled('sizes')) {
+                $params['sizes'] = is_array($request->sizes) ? implode(',', $request->sizes) : $request->sizes;
+            }
+
+            $productsResult = $wcApi->getAdminInventory($params);
             $rawProducts = $productsResult['data'];
             $totalProducts = (int)$productsResult['total'];
-
-            $productIds = array_column($rawProducts, 'id');
-            $allVariations = $wcApi->getMultipleProductVariations($productIds);
 
             $products = [];
             foreach ($rawProducts as $p) {
@@ -62,9 +71,9 @@ class InventoryController extends Controller
                 $categoryId = !empty($p['categories']) ? (int)$p['categories'][0]['id'] : null;
                 $image = !empty($p['images']) ? $p['images'][0]['src'] : null;
                 $isActive = ($p['status'] === 'publish');
-                $audience = $wcApi->getProductAudience($p);
+                $audience = $p['audience'] ?? null;
 
-                $variations = $allVariations[$productId] ?? [];
+                $variations = $p['variations'] ?? [];
 
                 $inventory = [];
                 $matrixSizes = [];
@@ -123,39 +132,6 @@ class InventoryController extends Controller
                 }
 
                 ksort($matrixSizes);
-
-                // Aplicar filtros locales de categoría, público, color o talla
-                if ($request->filled('categories') && !in_array($categoryId, (array)$request->categories)) {
-                    continue;
-                }
-
-                if ($request->filled('audience') && $request->audience !== '') {
-                    if ($audience !== strtolower($request->audience)) {
-                        continue;
-                    }
-                }
-
-                if ($request->filled('colors')) {
-                    $hasColor = false;
-                    foreach ($inventory as $inv) {
-                        if (in_array($inv->color_id, (array)$request->colors)) {
-                            $hasColor = true;
-                            break;
-                        }
-                    }
-                    if (!$hasColor) continue;
-                }
-
-                if ($request->filled('sizes')) {
-                    $hasSize = false;
-                    foreach ($inventory as $inv) {
-                        if (in_array($inv->size_id, (array)$request->sizes)) {
-                            $hasSize = true;
-                            break;
-                        }
-                    }
-                    if (!$hasSize) continue;
-                }
 
                 $productObj = new \stdClass();
                 $productObj->id = $productId;

@@ -44,4 +44,15 @@ return [
     |
     */
     'wp_uploads_path' => env('WORDPRESS_UPLOADS_PATH', base_path('../zapateria-wordpress/wp-content/uploads')),
+
+    /*
+    |--------------------------------------------------------------------------
+    | Inventory Cache TTL
+    |--------------------------------------------------------------------------
+    |
+    | Tiempo de vida (en segundos) para el caché del listado de inventario.
+    | Un valor de 0 desactiva el caché.
+    |
+    */
+    'inventory_cache_ttl' => (int) env('WOOCOMMERCE_INVENTORY_CACHE_TTL', 60),
 ];

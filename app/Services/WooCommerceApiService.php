@@ -2,7 +2,6 @@
 
 namespace App\Services;
 
-use Illuminate\Http\Client\Pool;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -12,6 +11,7 @@ use Illuminate\Support\Str;
 class WooCommerceApiService
 {
     private const SHOE_AUDIENCE_META_KEY = '_shoe_audience';
+    public const INVENTORY_CACHE_VERSION_KEY = 'wc_admin_inventory_version';
 
     protected string $storeUrl;
     protected string $consumerKey;
@@ -33,10 +33,10 @@ class WooCommerceApiService
     /**
      * Construye la URL completa del endpoint de WooCommerce.
      */
-    protected function buildUrl(string $endpoint): string
+    protected function buildUrl(string $endpoint, ?string $namespace = null): string
     {
         $base = rtrim($this->storeUrl, '/');
-        $ver = trim($this->version, '/');
+        $ver = trim($namespace ?? $this->version, '/');
         $end = ltrim($endpoint, '/');
 
         return "{$base}/wp-json/{$ver}/{$end}";
@@ -45,9 +45,9 @@ class WooCommerceApiService
     /**
      * Ejecuta una petición HTTP a la REST API de WooCommerce y devuelve la Response del HTTP Client.
      */
-    public function rawRequest(string $method, string $endpoint, array $params = [], array $data = []): Response
+    public function rawRequest(string $method, string $endpoint, array $params = [], array $data = [], ?string $namespace = null): Response
     {
-        $url = $this->buildUrl($endpoint);
+        $url = $this->buildUrl($endpoint, $namespace);
 
         $client = Http::timeout($this->timeout)
             ->withOptions(['verify' => $this->verifySsl]);
@@ -114,6 +114,7 @@ class WooCommerceApiService
     {
         $result = $this->request('POST', 'products/categories', [], $data) ?? [];
         $this->clearCategoriesCache();
+        $this->clearInventoryCache();
         return $result;
     }
 
@@ -121,6 +122,7 @@ class WooCommerceApiService
     {
         $result = $this->request('PUT', "products/categories/{$id}", [], $data) ?? [];
         $this->clearCategoriesCache();
+        $this->clearInventoryCache();
         return $result;
     }
 
@@ -128,6 +130,7 @@ class WooCommerceApiService
     {
         $result = $this->request('DELETE', "products/categories/{$id}", ['force' => $force ? 'true' : 'false']) ?? [];
         $this->clearCategoriesCache();
+        $this->clearInventoryCache();
         return $result;
     }
 
@@ -358,30 +361,52 @@ class WooCommerceApiService
     }
 
     /**
-     * Obtiene productos con información de paginación desde los headers X-WP-Total y X-WP-TotalPages.
+     * Obtiene el inventario desde el endpoint personalizado admin/inventory.
      *
      * @param array $params
      * @return array ['data' => array, 'total' => int, 'totalPages' => int]
      */
-    public function getProductsPaginated(array $params = []): array
+    public function getAdminInventory(array $params = []): array
     {
-        if (!isset($params['_fields'])) {
-            $params['_fields'] = 'id,name,sku,price,regular_price,categories,images,status,attributes';
+        foreach (['category', 'colors', 'sizes'] as $key) {
+            if (isset($params[$key]) && is_array($params[$key])) {
+                $params[$key] = implode(',', $params[$key]);
+            }
         }
 
-        $response = $this->rawRequest('GET', 'products', $params);
-        $data = $response->json() ?? [];
-        $totalHeader = $response->header('X-WP-Total');
-        $totalPagesHeader = $response->header('X-WP-TotalPages');
+        $ttl = (int) config('woocommerce.inventory_cache_ttl', 60);
 
-        $total = ($totalHeader !== null && $totalHeader !== '') ? (int)$totalHeader : count($data);
-        $totalPages = ($totalPagesHeader !== null && $totalPagesHeader !== '') ? (int)$totalPagesHeader : 1;
+        if ($ttl <= 0) {
+            return $this->fetchAdminInventory($params);
+        }
+
+        ksort($params);
+        $normalizedParams = array_map(fn($value) => is_scalar($value) ? (string) $value : $value, $params);
+        $key = 'wc_admin_inventory:' . $this->inventoryCacheVersion() . ':' . md5(json_encode($normalizedParams));
+
+        return Cache::remember($key, $ttl, fn () => $this->fetchAdminInventory($params));
+    }
+
+    private function fetchAdminInventory(array $params): array
+    {
+        $response = $this->rawRequest('GET', 'admin/inventory', $params, [], 'wc-dsm/v1');
+        $data = $response->json() ?? [];
 
         return [
-            'data' => $data,
-            'total' => $total,
-            'totalPages' => $totalPages,
+            'data' => $data['data'] ?? [],
+            'total' => (int) ($data['total'] ?? count($data['data'] ?? [])),
+            'totalPages' => (int) ($data['total_pages'] ?? 1),
         ];
+    }
+
+    protected function inventoryCacheVersion(): string
+    {
+        return Cache::rememberForever(self::INVENTORY_CACHE_VERSION_KEY, fn () => (string) Str::uuid());
+    }
+
+    public function clearInventoryCache(): void
+    {
+        Cache::forever(self::INVENTORY_CACHE_VERSION_KEY, (string) Str::uuid());
     }
 
     public function getProduct(int $id): array
@@ -451,68 +476,32 @@ class WooCommerceApiService
         return $this->request('GET', "products/{$productId}/variations", $params) ?? [];
     }
 
-    /**
-     * Obtiene las variaciones de múltiples productos concurrentemente en paralelo usando Http::pool().
-     *
-     * @param array $productIds
-     * @return array Mapa [productId => variationsArray]
-     */
-    public function getMultipleProductVariations(array $productIds): array
-    {
-        if (empty($productIds)) {
-            return [];
-        }
-
-        $responses = Http::pool(function (Pool $pool) use ($productIds) {
-            $requests = [];
-            foreach ($productIds as $id) {
-                $url = $this->buildUrl("products/{$id}/variations");
-                $authParams = [
-                    'consumer_key' => $this->consumerKey,
-                    'consumer_secret' => $this->consumerSecret,
-                    'per_page' => 100,
-                    '_fields' => 'id,regular_price,attributes,stock_quantity',
-                ];
-
-                $requests[(string)$id] = $pool->as((string)$id)
-                    ->timeout($this->timeout)
-                    ->withOptions(['verify' => $this->verifySsl])
-                    ->get($url, $authParams);
-            }
-            return $requests;
-        });
-
-        $result = [];
-        foreach ($productIds as $id) {
-            $resp = $responses[(string)$id] ?? null;
-            if ($resp instanceof Response && $resp->successful()) {
-                $result[$id] = $resp->json() ?? [];
-            } else {
-                $result[$id] = [];
-            }
-        }
-
-        return $result;
-    }
-
     public function createProduct(array $data): array
     {
-        return $this->request('POST', 'products', [], $data) ?? [];
+        $result = $this->request('POST', 'products', [], $data) ?? [];
+        $this->clearInventoryCache();
+        return $result;
     }
 
     public function updateProduct(int $id, array $data): array
     {
-        return $this->request('PUT', "products/{$id}", [], $data) ?? [];
+        $result = $this->request('PUT', "products/{$id}", [], $data) ?? [];
+        $this->clearInventoryCache();
+        return $result;
     }
 
     public function deleteProduct(int $id, bool $force = true): array
     {
-        return $this->request('DELETE', "products/{$id}", ['force' => $force ? 'true' : 'false']) ?? [];
+        $result = $this->request('DELETE', "products/{$id}", ['force' => $force ? 'true' : 'false']) ?? [];
+        $this->clearInventoryCache();
+        return $result;
     }
 
     public function batchVariations(int $productId, array $batchData): array
     {
-        return $this->request('POST', "products/{$productId}/variations/batch", [], $batchData) ?? [];
+        $result = $this->request('POST', "products/{$productId}/variations/batch", [], $batchData) ?? [];
+        $this->clearInventoryCache();
+        return $result;
     }
 
     /**
@@ -799,6 +788,8 @@ class WooCommerceApiService
      */
     public function updateOrderStatus(int $id, string $status): array
     {
-        return $this->request('PUT', "orders/{$id}", [], ['status' => $status]) ?? [];
+        $result = $this->request('PUT', "orders/{$id}", [], ['status' => $status]) ?? [];
+        $this->clearInventoryCache();
+        return $result;
     }
 }

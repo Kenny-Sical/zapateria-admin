@@ -44,4 +44,8 @@ Route::middleware('auth')->group(function () {
     Route::put('/inventory/{id}', [App\Http\Controllers\Inventory\InventoryController::class, 'update'])->name('inventory.update');
     Route::put('/inventory/{id}/toggle-status', [App\Http\Controllers\Inventory\InventoryController::class, 'toggleStatus'])->name('inventory.toggle-status');
     Route::delete('/inventory/{id}', [App\Http\Controllers\Inventory\InventoryController::class, 'destroy'])->name('inventory.destroy');
+
+    // Módulo de Seguimiento de Ventas (Pedidos)
+    Route::get('/orders', [App\Http\Controllers\Orders\OrderController::class, 'index'])->name('orders.index');
+    Route::put('/orders/{id}/status', [App\Http\Controllers\Orders\OrderController::class, 'updateStatus'])->name('orders.update-status');
 });

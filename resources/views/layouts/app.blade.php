@@ -330,6 +330,11 @@
                 <span>Inventario</span>
             </a>
             
+            <a href="{{ route('orders.index') }}" class="nav-link {{ request()->routeIs('orders.*') ? 'active' : '' }}" title="Ventas">
+                <i class='bx bx-cart'></i>
+                <span>Ventas</span>
+            </a>
+            
             @if(auth()->check() && auth()->user()->role === 0)
             <a href="{{ route('categories.index') }}" class="nav-link {{ request()->routeIs('categories.*') ? 'active' : '' }}" title="Categorías">
                 <i class='bx bx-category'></i>

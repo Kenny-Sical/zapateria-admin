@@ -742,4 +742,63 @@ class WooCommerceApiService
 
         return $this->updateProduct($id, ['status' => $newStatus]);
     }
+
+    /* -------------------------------------------------------------------------- */
+    /*                                   PEDIDOS                                  */
+    /* -------------------------------------------------------------------------- */
+
+    /**
+     * Obtiene pedidos desde WooCommerce REST API.
+     */
+    public function getOrders(array $params = []): array
+    {
+        if (!isset($params['_fields'])) {
+            $params['_fields'] = 'id,number,status,currency,currency_symbol,date_created,total,total_tax,shipping_total,discount_total,payment_method_title,billing,shipping,line_items';
+        }
+
+        return $this->request('GET', 'orders', $params) ?? [];
+    }
+
+    /**
+     * Obtiene pedidos con información de paginación desde los headers X-WP-Total y X-WP-TotalPages.
+     *
+     * @param array $params
+     * @return array ['data' => array, 'total' => int, 'totalPages' => int]
+     */
+    public function getOrdersPaginated(array $params = []): array
+    {
+        if (!isset($params['_fields'])) {
+            $params['_fields'] = 'id,number,status,currency,currency_symbol,date_created,total,total_tax,shipping_total,discount_total,payment_method_title,billing,shipping,line_items';
+        }
+
+        $response = $this->rawRequest('GET', 'orders', $params);
+        $orders = $response->json() ?? [];
+        $totalHeader = $response->header('X-WP-Total');
+        $totalPagesHeader = $response->header('X-WP-TotalPages');
+
+        $total = ($totalHeader !== null && $totalHeader !== '') ? (int)$totalHeader : count($orders);
+        $totalPages = ($totalPagesHeader !== null && $totalPagesHeader !== '') ? (int)$totalPagesHeader : 1;
+
+        return [
+            'data' => $orders,
+            'total' => $total,
+            'totalPages' => $totalPages,
+        ];
+    }
+
+    /**
+     * Obtiene un pedido específico por ID.
+     */
+    public function getOrder(int $id): array
+    {
+        return $this->request('GET', "orders/{$id}") ?? [];
+    }
+
+    /**
+     * Actualiza el estado de un pedido en WooCommerce.
+     */
+    public function updateOrderStatus(int $id, string $status): array
+    {
+        return $this->request('PUT', "orders/{$id}", [], ['status' => $status]) ?? [];
+    }
 }

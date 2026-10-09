@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Inventory;
 use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
+use App\Services\ProductImageStorage;
 use App\Services\WooCommerceApiService;
 
 class InventoryController extends Controller
@@ -208,7 +209,7 @@ class InventoryController extends Controller
     /**
      * Guarda el nuevo producto y su inventario en WooCommerce vía REST API.
      */
-    public function store(Request $request, WooCommerceApiService $wcApi)
+    public function store(Request $request, WooCommerceApiService $wcApi, ProductImageStorage $imageStorage)
     {
         $request->validate([
             'name' => 'required|string|max:255',
@@ -221,8 +222,11 @@ class InventoryController extends Controller
         ]);
 
         $imageUrl = null;
+        $imagePath = null;
         if ($request->hasFile('image')) {
-            $imageUrl = $this->storeProductImage($request->file('image'), $request->sku);
+            $stored = $imageStorage->store($request->file('image'), $request->sku);
+            $imageUrl = $stored['url'];
+            $imagePath = $stored['path'];
         }
 
         try {
@@ -243,6 +247,11 @@ class InventoryController extends Controller
             return redirect()->route('inventory.index')->with('success', 'El producto y su inventario se guardaron correctamente en WooCommerce vía REST API.');
         } catch (\Exception $e) {
             return back()->with('error', 'Error al guardar el producto en WooCommerce: ' . $e->getMessage())->withInput();
+        } finally {
+            // WooCommerce already sideloaded its own copy (or the save failed): drop the temporary file.
+            if ($imagePath) {
+                $imageStorage->delete($imagePath);
+            }
         }
     }
 
@@ -344,7 +353,7 @@ class InventoryController extends Controller
     /**
      * Actualiza el producto y sus variaciones en WooCommerce.
      */
-    public function update(Request $request, $id, WooCommerceApiService $wcApi)
+    public function update(Request $request, $id, WooCommerceApiService $wcApi, ProductImageStorage $imageStorage)
     {
         $request->validate([
             'name' => 'required|string|max:255',
@@ -357,8 +366,11 @@ class InventoryController extends Controller
         ]);
 
         $imageUrl = null;
+        $imagePath = null;
         if ($request->hasFile('image')) {
-            $imageUrl = $this->storeProductImage($request->file('image'), $request->sku);
+            $stored = $imageStorage->store($request->file('image'), $request->sku);
+            $imageUrl = $stored['url'];
+            $imagePath = $stored['path'];
         }
 
         try {
@@ -378,6 +390,11 @@ class InventoryController extends Controller
             return redirect()->route('inventory.index')->with('success', 'Producto e inventario actualizados con éxito en WooCommerce.');
         } catch (\Exception $e) {
             return back()->with('error', 'Error al actualizar producto en WooCommerce: ' . $e->getMessage())->withInput();
+        } finally {
+            // WooCommerce already sideloaded its own copy (or the save failed): drop the temporary file.
+            if ($imagePath) {
+                $imageStorage->delete($imagePath);
+            }
         }
     }
 
@@ -409,69 +426,5 @@ class InventoryController extends Controller
         } catch (\Exception $e) {
             return redirect()->route('inventory.index')->with('error', 'Error al eliminar producto: ' . $e->getMessage());
         }
-    }
-
-    /**
-     * Procesa y almacena la imagen en el directorio wp-content/uploads de WordPress organizado por año y mes (YYYY/MM).
-     *
-     * @param  \Illuminate\Http\UploadedFile  $image
-     * @param  string  $sku
-     * @return string  URL pública accesible de la imagen en WordPress
-     */
-    protected function storeProductImage($image, string $sku): ?string
-    {
-        $year = date('Y');
-        $month = date('m');
-
-        // Directorio base de uploads de WordPress
-        $uploadsBase = config('woocommerce.wp_uploads_path', base_path('../zapateria-wordpress/wp-content/uploads'));
-        $targetDir = rtrim($uploadsBase, '/') . '/' . $year . '/' . $month;
-
-        if (!file_exists($targetDir)) {
-            mkdir($targetDir, 0775, true);
-        }
-
-        $cleanSku = preg_replace('/[^A-Za-z0-9\-]/', '', $sku);
-        if (empty($cleanSku)) {
-            $cleanSku = 'prod';
-        }
-        $fileName = 'sku_' . $cleanSku . '_' . time() . '.webp';
-        $destinationFile = $targetDir . '/' . $fileName;
-
-        $sourceImage = null;
-        $mime = $image->getMimeType();
-        switch ($mime) {
-            case 'image/jpeg':
-                $sourceImage = @imagecreatefromjpeg($image->getPathname());
-                break;
-            case 'image/png':
-                $sourceImage = @imagecreatefrompng($image->getPathname());
-                if ($sourceImage) {
-                    imagepalettetotruecolor($sourceImage);
-                    imagealphablending($sourceImage, true);
-                    imagesavealpha($sourceImage, true);
-                }
-                break;
-            case 'image/webp':
-                $sourceImage = @imagecreatefromwebp($image->getPathname());
-                break;
-            case 'image/gif':
-                $sourceImage = @imagecreatefromgif($image->getPathname());
-                break;
-        }
-
-        if ($sourceImage) {
-            imagewebp($sourceImage, $destinationFile, 85);
-            imagedestroy($sourceImage);
-        } else {
-            $extension = $image->getClientOriginalExtension() ?: 'jpg';
-            $fileName = 'sku_' . $cleanSku . '_' . time() . '.' . $extension;
-            $destinationFile = $targetDir . '/' . $fileName;
-            $image->move($targetDir, $fileName);
-        }
-
-        // Construir la URL completa apuntando al virtualhost de WordPress
-        $storeUrl = rtrim(config('woocommerce.store_url', 'http://zapateria-wordpress'), '/');
-        return "{$storeUrl}/wp-content/uploads/{$year}/{$month}/{$fileName}";
     }
 }

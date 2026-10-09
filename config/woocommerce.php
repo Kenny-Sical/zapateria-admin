@@ -37,16 +37,6 @@ return [
 
     /*
     |--------------------------------------------------------------------------
-    | WordPress Uploads Directory
-    |--------------------------------------------------------------------------
-    |
-    | Ruta física absoluta al directorio wp-content/uploads de WordPress.
-    |
-    */
-    'wp_uploads_path' => env('WORDPRESS_UPLOADS_PATH', base_path('../zapateria-wordpress/wp-content/uploads')),
-
-    /*
-    |--------------------------------------------------------------------------
     | Inventory Cache TTL
     |--------------------------------------------------------------------------
     |

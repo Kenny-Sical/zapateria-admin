@@ -341,6 +341,11 @@
                 <span>Categorías</span>
             </a>
 
+            <a href="{{ route('colors.index') }}" class="nav-link {{ request()->routeIs('colors.*') ? 'active' : '' }}" title="Colores">
+                <i class='bx bx-palette'></i>
+                <span>Colores</span>
+            </a>
+
             <a href="{{ route('users.index') }}" class="nav-link {{ request()->routeIs('users.*') ? 'active' : '' }}" title="Usuarios">
                 <i class='bx bx-group'></i>
                 <span>Usuarios</span>

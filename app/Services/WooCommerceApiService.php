@@ -348,6 +348,116 @@ class WooCommerceApiService
     }
 
     /* -------------------------------------------------------------------------- */
+    /*                                   COLORES                                  */
+    /* -------------------------------------------------------------------------- */
+
+    /**
+     * Get the WooCommerce attribute ID for color.
+     */
+    public function getColorAttributeId(): int
+    {
+        return (int) $this->ensureAttributesAndTermsExist()['colorAttributeId'];
+    }
+
+    /**
+     * Get all color attribute terms ordered by name.
+     */
+    public function getColors(): array
+    {
+        $attrId = $this->getColorAttributeId();
+
+        return $this->request('GET', "products/attributes/{$attrId}/terms", [
+            'per_page' => 100,
+            'orderby' => 'name',
+            'order' => 'asc',
+        ]) ?? [];
+    }
+
+    /**
+     * Get a single color attribute term by ID.
+     */
+    public function getColor(int $termId): array
+    {
+        $attrId = $this->getColorAttributeId();
+
+        return $this->request('GET', "products/attributes/{$attrId}/terms/{$termId}") ?? [];
+    }
+
+    /**
+     * Create a new color attribute term.
+     */
+    public function createColor(string $name): array
+    {
+        $attrId = $this->getColorAttributeId();
+        $result = $this->request('POST', "products/attributes/{$attrId}/terms", [], [
+            'name' => $name,
+            'slug' => Str::slug($name),
+        ]) ?? [];
+
+        $this->clearColorCaches();
+
+        return $result;
+    }
+
+    /**
+     * Update an existing color attribute term name (never sends slug).
+     */
+    public function updateColor(int $termId, string $name): array
+    {
+        $attrId = $this->getColorAttributeId();
+        $result = $this->request('PUT', "products/attributes/{$attrId}/terms/{$termId}", [], [
+            'name' => $name,
+        ]) ?? [];
+
+        $this->clearColorCaches();
+
+        return $result;
+    }
+
+    /**
+     * Delete a color attribute term.
+     */
+    public function deleteColor(int $termId, bool $force = true): array
+    {
+        $attrId = $this->getColorAttributeId();
+        $result = $this->request('DELETE', "products/attributes/{$attrId}/terms/{$termId}", [
+            'force' => $force ? 'true' : 'false',
+        ]) ?? [];
+
+        $this->clearColorCaches();
+
+        return $result;
+    }
+
+    /**
+     * Check if any product is currently using this color attribute term.
+     */
+    public function isColorInUse(int $termId): bool
+    {
+        $attrId = $this->getColorAttributeId();
+        $attribute = $this->request('GET', "products/attributes/{$attrId}") ?? [];
+        $slug = !empty($attribute['slug']) ? $attribute['slug'] : 'pa_color';
+
+        $products = $this->request('GET', 'products', [
+            'attribute' => $slug,
+            'attribute_term' => $termId,
+            'status' => 'any',
+            'per_page' => 1,
+        ]) ?? [];
+
+        return !empty($products);
+    }
+
+    /**
+     * Clear attribute and inventory caches affected by color mutations.
+     */
+    public function clearColorCaches(): void
+    {
+        $this->clearAttributesCache();
+        $this->clearInventoryCache();
+    }
+
+    /* -------------------------------------------------------------------------- */
     /*                         PRODUCTOS Y VARIACIONES                            */
     /* -------------------------------------------------------------------------- */
 

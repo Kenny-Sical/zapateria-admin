@@ -34,6 +34,14 @@ Route::middleware('auth')->group(function () {
         Route::get('/categories/{id}/edit', [App\Http\Controllers\Categories\CategoryController::class, 'edit'])->name('categories.edit');
         Route::put('/categories/{id}', [App\Http\Controllers\Categories\CategoryController::class, 'update'])->name('categories.update');
         Route::delete('/categories/{id}', [App\Http\Controllers\Categories\CategoryController::class, 'destroy'])->name('categories.destroy');
+
+        // Módulo de Colores (CRUD)
+        Route::get('/colors', [App\Http\Controllers\Colors\ColorController::class, 'index'])->name('colors.index');
+        Route::get('/colors/create', [App\Http\Controllers\Colors\ColorController::class, 'create'])->name('colors.create');
+        Route::post('/colors', [App\Http\Controllers\Colors\ColorController::class, 'store'])->name('colors.store');
+        Route::get('/colors/{id}/edit', [App\Http\Controllers\Colors\ColorController::class, 'edit'])->name('colors.edit');
+        Route::put('/colors/{id}', [App\Http\Controllers\Colors\ColorController::class, 'update'])->name('colors.update');
+        Route::delete('/colors/{id}', [App\Http\Controllers\Colors\ColorController::class, 'destroy'])->name('colors.destroy');
     });
 
     // Rutas accesibles por SuperAdmin (0) y Editor (1)

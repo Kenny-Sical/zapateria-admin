@@ -408,7 +408,7 @@
             Swal.fire({
                 icon: 'success',
                 title: '¡Éxito!',
-                text: '{{ session("success") }}',
+                text: @json(session('success')),
                 confirmButtonColor: 'var(--primary-color)'
             });
         });
@@ -421,7 +421,7 @@
             Swal.fire({
                 icon: 'error',
                 title: 'Error',
-                text: '{{ session("error") ?? $error }}',
+                text: @json(session('error') ?? ($error ?? '')),
                 confirmButtonColor: 'var(--primary-color)'
             });
         });

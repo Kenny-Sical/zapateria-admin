@@ -53,7 +53,7 @@ class LoginController extends Controller
         }
 
         return back()->withErrors([
-            'email' => 'Las credenciales proporcionadas no coinciden con nuestros registros.',
+            'email' => 'El correo o la contraseña no son correctos.',
         ])->onlyInput('email');
     }
 

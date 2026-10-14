@@ -316,7 +316,7 @@ class ColorManagementTest extends TestCase
 
         $response = $this->actingAs($this->adminUser)->delete('/colors/10');
         $response->assertRedirect('/colors');
-        $response->assertSessionHas('error', 'No se puede eliminar: hay productos que usan este color.');
+        $response->assertSessionHas('error', 'No se puede eliminar este color porque hay productos que lo usan.');
 
         Http::assertNotSent(function ($request) {
             return $request->method() === 'DELETE';
@@ -425,5 +425,24 @@ class ColorManagementTest extends TestCase
 
         $response->assertStatus(302);
         $response->assertSessionHas('error');
+    }
+
+    /**
+     * Validation errors are shown in Spanish with Spanish field names (AC5 of user-facing-messages).
+     */
+    public function test_validation_errors_are_shown_in_spanish(): void
+    {
+        app()->setLocale('es');
+        Http::fake();
+
+        $this->actingAs($this->adminUser)
+            ->post('/colors', ['name' => '   '])
+            ->assertSessionHasErrors(['name' => 'El campo nombre es obligatorio.']);
+
+        $this->actingAs($this->adminUser)
+            ->post('/colors', ['name' => str_repeat('a', 101)])
+            ->assertSessionHasErrors(['name' => 'El campo nombre no debe tener más de 100 caracteres.']);
+
+        Http::assertNothingSent();
     }
 }

@@ -2,6 +2,7 @@
 
 namespace App\Services;
 
+use App\Exceptions\WooCommerceApiException;
 use Illuminate\Http\Client\Response;
 use Illuminate\Support\Facades\Cache;
 use Illuminate\Support\Facades\Http;
@@ -69,7 +70,7 @@ class WooCommerceApiService
         if ($response->failed()) {
             $errorMsg = $response->json('message') ?? $response->body() ?? 'Error en la petición a WooCommerce REST API';
             Log::error("WooCommerce API Error [{$method} {$endpoint}]: {$errorMsg}");
-            throw new \Exception($errorMsg, $response->status());
+            throw new WooCommerceApiException($errorMsg, $response->status(), $response->json('code'));
         }
 
         return $response;

@@ -7,6 +7,7 @@ use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
 use App\Services\ProductImageStorage;
 use App\Services\WooCommerceApiService;
+use App\Support\FriendlyError;
 
 class InventoryController extends Controller
 {
@@ -177,7 +178,7 @@ class InventoryController extends Controller
                 'sizes' => [],
                 'audiences' => [],
                 'products' => $emptyPaginator,
-            ])->with('error', 'Error al consultar WooCommerce API: ' . $e->getMessage());
+            ])->with('error', FriendlyError::message($e, 'No se pudo cargar el inventario'));
         }
     }
 
@@ -202,7 +203,7 @@ class InventoryController extends Controller
 
             return view('inventory.create', compact('categories', 'colors', 'sizes', 'audiences'));
         } catch (\Exception $e) {
-            return redirect()->route('inventory.index')->with('error', 'Error al cargar formulario: ' . $e->getMessage());
+            return redirect()->route('inventory.index')->with('error', FriendlyError::message($e, 'No se pudo abrir el formulario de producto'));
         }
     }
 
@@ -244,9 +245,9 @@ class InventoryController extends Controller
             $wcApi->clearCategoriesCache();
             $wcApi->clearAttributesCache();
 
-            return redirect()->route('inventory.index')->with('success', 'El producto y su inventario se guardaron correctamente en WooCommerce vía REST API.');
+            return redirect()->route('inventory.index')->with('success', 'Producto guardado correctamente.');
         } catch (\Exception $e) {
-            return back()->with('error', 'Error al guardar el producto en WooCommerce: ' . $e->getMessage())->withInput();
+            return back()->with('error', FriendlyError::message($e, 'No se pudo guardar el producto'))->withInput();
         } finally {
             // WooCommerce already sideloaded its own copy (or the save failed): drop the temporary file.
             if ($imagePath) {
@@ -346,7 +347,7 @@ class InventoryController extends Controller
                 'selectedSizes'
             ));
         } catch (\Exception $e) {
-            return redirect()->route('inventory.index')->with('error', 'Error al cargar el producto para edición: ' . $e->getMessage());
+            return redirect()->route('inventory.index')->with('error', FriendlyError::message($e, 'No se pudo cargar el producto'));
         }
     }
 
@@ -387,9 +388,9 @@ class InventoryController extends Controller
             $wcApi->clearCategoriesCache();
             $wcApi->clearAttributesCache();
 
-            return redirect()->route('inventory.index')->with('success', 'Producto e inventario actualizados con éxito en WooCommerce.');
+            return redirect()->route('inventory.index')->with('success', 'Producto actualizado correctamente.');
         } catch (\Exception $e) {
-            return back()->with('error', 'Error al actualizar producto en WooCommerce: ' . $e->getMessage())->withInput();
+            return back()->with('error', FriendlyError::message($e, 'No se pudo actualizar el producto'))->withInput();
         } finally {
             // WooCommerce already sideloaded its own copy (or the save failed): drop the temporary file.
             if ($imagePath) {
@@ -404,10 +405,14 @@ class InventoryController extends Controller
     public function toggleStatus($id, WooCommerceApiService $wcApi)
     {
         try {
-            $wcApi->toggleProductStatus((int)$id);
-            return redirect()->route('inventory.index')->with('success', 'Estado del producto actualizado en WooCommerce.');
+            $product = $wcApi->toggleProductStatus((int)$id);
+            $message = (($product['status'] ?? '') === 'publish')
+                ? 'El producto ahora está visible en la tienda.'
+                : 'El producto se ocultó de la tienda.';
+
+            return redirect()->route('inventory.index')->with('success', $message);
         } catch (\Exception $e) {
-            return redirect()->route('inventory.index')->with('error', 'Error al cambiar estado: ' . $e->getMessage());
+            return redirect()->route('inventory.index')->with('error', FriendlyError::message($e, 'No se pudo cambiar el estado del producto'));
         }
     }
 
@@ -422,9 +427,9 @@ class InventoryController extends Controller
             $wcApi->clearCategoriesCache();
             $wcApi->clearAttributesCache();
 
-            return redirect()->route('inventory.index')->with('success', 'Producto eliminado exitosamente de WooCommerce.');
+            return redirect()->route('inventory.index')->with('success', 'Producto eliminado correctamente.');
         } catch (\Exception $e) {
-            return redirect()->route('inventory.index')->with('error', 'Error al eliminar producto: ' . $e->getMessage());
+            return redirect()->route('inventory.index')->with('error', FriendlyError::message($e, 'No se pudo eliminar el producto'));
         }
     }
 }

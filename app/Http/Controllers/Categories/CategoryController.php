@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 use App\Services\WooCommerceApiService;
+use App\Support\FriendlyError;
 
 class CategoryController extends Controller
 {
@@ -37,7 +38,7 @@ class CategoryController extends Controller
             return view('categories.read', compact('categories'));
         } catch (\Exception $e) {
             return view('categories.read', ['categories' => []])
-                ->with('error', 'Error de conexión con WooCommerce API: ' . $e->getMessage());
+                ->with('error', FriendlyError::message($e, 'No se pudieron cargar las categorías'));
         }
     }
 
@@ -58,9 +59,9 @@ class CategoryController extends Controller
 
             $wcApi->clearCategoriesCache();
 
-            return redirect()->route('categories.index')->with('success', 'Categoría creada exitosamente en WooCommerce.');
+            return redirect()->route('categories.index')->with('success', 'Categoría creada correctamente.');
         } catch (\Exception $e) {
-            return back()->with('error', 'Error al crear la categoría: ' . $e->getMessage())->withInput();
+            return back()->with('error', FriendlyError::message($e, 'No se pudo crear la categoría'))->withInput();
         }
     }
 
@@ -76,7 +77,7 @@ class CategoryController extends Controller
 
             return view('categories.edit', compact('category'));
         } catch (\Exception $e) {
-            return redirect()->route('categories.index')->with('error', 'No se pudo cargar la categoría: ' . $e->getMessage());
+            return redirect()->route('categories.index')->with('error', FriendlyError::message($e, 'No se pudo cargar la categoría'));
         }
     }
 
@@ -92,9 +93,9 @@ class CategoryController extends Controller
 
             $wcApi->clearCategoriesCache();
 
-            return redirect()->route('categories.index')->with('success', 'Categoría actualizada exitosamente en WooCommerce.');
+            return redirect()->route('categories.index')->with('success', 'Categoría actualizada correctamente.');
         } catch (\Exception $e) {
-            return back()->with('error', 'Error al actualizar la categoría: ' . $e->getMessage())->withInput();
+            return back()->with('error', FriendlyError::message($e, 'No se pudo actualizar la categoría'))->withInput();
         }
     }
 
@@ -105,9 +106,9 @@ class CategoryController extends Controller
 
             $wcApi->clearCategoriesCache();
 
-            return redirect()->route('categories.index')->with('success', 'Categoría eliminada exitosamente en WooCommerce.');
+            return redirect()->route('categories.index')->with('success', 'Categoría eliminada correctamente.');
         } catch (\Exception $e) {
-            return redirect()->route('categories.index')->with('error', 'No se pudo eliminar la categoría: ' . $e->getMessage());
+            return redirect()->route('categories.index')->with('error', FriendlyError::message($e, 'No se pudo eliminar la categoría'));
         }
     }
 }

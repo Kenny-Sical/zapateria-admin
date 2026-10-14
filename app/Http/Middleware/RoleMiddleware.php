@@ -20,7 +20,7 @@ class RoleMiddleware
         }
 
         if (auth()->user()->role != $role) {
-            abort(403, 'Acceso Denegado. No tienes permisos para esta sección.');
+            abort(403, 'No tienes permiso para acceder a esta sección.');
         }
 
         return $next($request);

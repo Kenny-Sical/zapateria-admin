@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Colors;
 
 use App\Http\Controllers\Controller;
 use App\Services\WooCommerceApiService;
+use App\Support\FriendlyError;
 use Illuminate\Http\Request;
 use Illuminate\Support\Str;
 
@@ -37,7 +38,7 @@ class ColorController extends Controller
             return view('colors.read', compact('colors'));
         } catch (\Exception $e) {
             return view('colors.read', ['colors' => []])
-                ->with('error', 'Error de conexión con WooCommerce API: '.$e->getMessage());
+                ->with('error', FriendlyError::message($e, 'No se pudieron cargar los colores'));
         }
     }
 
@@ -74,9 +75,9 @@ class ColorController extends Controller
 
             $wcApi->createColor($trimmedName);
 
-            return redirect()->route('colors.index')->with('success', 'Color creado exitosamente en WooCommerce.');
+            return redirect()->route('colors.index')->with('success', 'Color creado correctamente.');
         } catch (\Exception $e) {
-            return back()->with('error', 'Error al crear el color: '.$e->getMessage())->withInput();
+            return back()->with('error', FriendlyError::message($e, 'No se pudo crear el color'))->withInput();
         }
     }
 
@@ -95,7 +96,7 @@ class ColorController extends Controller
 
             return view('colors.edit', compact('color'));
         } catch (\Exception $e) {
-            return redirect()->route('colors.index')->with('error', 'No se pudo cargar el color: '.$e->getMessage());
+            return redirect()->route('colors.index')->with('error', FriendlyError::message($e, 'No se pudo cargar el color'));
         }
     }
 
@@ -128,9 +129,9 @@ class ColorController extends Controller
 
             $wcApi->updateColor($id, $trimmedName);
 
-            return redirect()->route('colors.index')->with('success', 'Color actualizado exitosamente en WooCommerce.');
+            return redirect()->route('colors.index')->with('success', 'Color actualizado correctamente.');
         } catch (\Exception $e) {
-            return back()->with('error', 'Error al actualizar el color: '.$e->getMessage())->withInput();
+            return back()->with('error', FriendlyError::message($e, 'No se pudo actualizar el color'))->withInput();
         }
     }
 
@@ -148,14 +149,14 @@ class ColorController extends Controller
             }
 
             if ($wcApi->isColorInUse($id)) {
-                return redirect()->route('colors.index')->with('error', 'No se puede eliminar: hay productos que usan este color.');
+                return redirect()->route('colors.index')->with('error', 'No se puede eliminar este color porque hay productos que lo usan.');
             }
 
             $wcApi->deleteColor($id, true);
 
-            return redirect()->route('colors.index')->with('success', 'Color eliminado exitosamente en WooCommerce.');
+            return redirect()->route('colors.index')->with('success', 'Color eliminado correctamente.');
         } catch (\Exception $e) {
-            return redirect()->route('colors.index')->with('error', 'No se pudo eliminar el color: '.$e->getMessage());
+            return redirect()->route('colors.index')->with('error', FriendlyError::message($e, 'No se pudo eliminar el color'));
         }
     }
 }

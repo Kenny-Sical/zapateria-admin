@@ -343,7 +343,7 @@
                             </form>
 
                             @if(!$product->is_active)
-                            <form action="{{ route('inventory.destroy', $product->id) }}" method="POST" style="margin: 0;" onclick="event.stopPropagation();" onsubmit="return confirm('¿Eliminar producto permanentemente?');">
+                            <form action="{{ route('inventory.destroy', $product->id) }}" method="POST" style="margin: 0;" onclick="event.stopPropagation();" onsubmit="return confirm('¿Seguro que deseas eliminar este producto? Esta acción no se puede deshacer.');">
                                 @csrf
                                 @method('DELETE')
                                 <button type="submit" class="btn btn-outline" style="padding: 0.4rem 0.6rem; color: var(--error);" title="Eliminar"><i class='bx bx-trash' style="margin:0;"></i></button>

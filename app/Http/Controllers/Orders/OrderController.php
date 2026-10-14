@@ -4,6 +4,7 @@ namespace App\Http\Controllers\Orders;
 
 use App\Http\Controllers\Controller;
 use App\Services\WooCommerceApiService;
+use App\Support\FriendlyError;
 use Carbon\Carbon;
 use Illuminate\Http\Request;
 use Illuminate\Pagination\LengthAwarePaginator;
@@ -102,7 +103,7 @@ class OrderController extends Controller
                 'metrics'       => $metrics,
                 'currentStatus' => $currentStatus,
                 'search'        => $search,
-            ])->with('error', 'Error al consultar pedidos en WooCommerce API: ' . $e->getMessage());
+            ])->with('error', FriendlyError::message($e, 'No se pudieron cargar los pedidos'));
         }
     }
 
@@ -119,9 +120,9 @@ class OrderController extends Controller
             $wcApi->updateOrderStatus((int) $id, $request->status);
             $statusLabel = self::STATUS_MAP[$request->status] ?? $request->status;
 
-            return back()->with('success', "Estado del pedido #{$id} actualizado a '{$statusLabel}'.");
+            return back()->with('success', "Pedido #{$id} actualizado a \"{$statusLabel}\".");
         } catch (\Exception $e) {
-            return back()->with('error', 'Error al actualizar el estado del pedido: ' . $e->getMessage());
+            return back()->with('error', FriendlyError::message($e, 'No se pudo actualizar el estado del pedido'));
         }
     }
 

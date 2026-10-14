@@ -79,7 +79,7 @@ class UserController extends Controller
             ['user_id' => $user->ID, 'meta_key' => 'admin_color', 'meta_value' => 'modern'],
         ]);
 
-        return redirect()->route('users.index')->with('success', 'Usuario creado exitosamente.');
+        return redirect()->route('users.index')->with('success', 'Usuario creado correctamente.');
     }
 
     public function edit($id)
@@ -111,7 +111,7 @@ class UserController extends Controller
         $user->update($data);
         $user->setRole($request->role);
 
-        return redirect()->route('users.index')->with('success', 'Usuario actualizado exitosamente.');
+        return redirect()->route('users.index')->with('success', 'Usuario actualizado correctamente.');
     }
 
     public function destroy($id)
@@ -124,6 +124,6 @@ class UserController extends Controller
         DB::table('wp_usermeta')->where('user_id', $user->ID)->delete();
         $user->delete();
 
-        return redirect()->route('users.index')->with('success', 'Usuario eliminado exitosamente.');
+        return redirect()->route('users.index')->with('success', 'Usuario eliminado correctamente.');
     }
 }
